@@ -135,7 +135,7 @@
     add('Porte', obj.porte_empresa);
 
     if (Array.isArray(obj.QSA) && obj.QSA.length){
-      const names = obj.QSA.slice(0, 8).map(s => s?.nome_socio || 'Sócio').join(', ');
+      const names = obj.QSA.map(s => s?.nome_socio || 'Sócio').join(', ');
       add(`Quadro societário (${obj.QSA_count ?? obj.QSA.length})`, names);
     }
 
