@@ -48,7 +48,7 @@
         <p>Retorna os dados do CNPJ informado em JSON.</p>
 
         <h3>Parâmetros</h3>
-        <p><strong>Path</strong> <code>{CNPJ}</code> — 14 dígitos. Formatos aceitos:</p>
+        <p><strong>Path</strong> <code>{CNPJ}</code> 14 dígitos. Formatos aceitos:</p>
         <ul>
           <li>Só números: <code>00000000000000</code></li>
           <li>Com pontuação completa: <code>00.000.000/0000-00</code></li>
@@ -138,15 +138,15 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
 
         <h3>Códigos de status</h3>
         <ul>
-          <li><strong>200</strong> — CNPJ encontrado</li>
-          <li><strong>404</strong> — CNPJ não encontrado</li>
-          <li><strong>429</strong> — limite de requisições excedido</li>
+          <li><strong>200</strong> CNPJ encontrado</li>
+          <li><strong>404</strong> CNPJ não encontrado</li>
+          <li><strong>429</strong> limite de requisições excedido</li>
         </ul>
 
         <h3>Autenticação e limites</h3>
         <ul>
           <li><strong>Autenticação:</strong> não requer chaves ou tokens.</li>
-          <li><strong>Rate limit:</strong> 50 requisições por segundo por IP.</li>
+          <li><strong>Rate limit:</strong> aceitamos <strong>picos de até 50 requisições/segundo por IP</strong>.</li>
         </ul>
 
         
@@ -163,13 +163,13 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
       <section id="dados">
         <h2>Dados</h2>
         <p>Todos os dados são disponibilizados publicamente pela Receita Federal. A base é atualizada mensalmente, conforme a publicação mensal dos dados pela Receita Federal.</p>
-        <p class="api-meta"><strong>Total de CNPJs cadastrados na base:</strong> <span id="info-total">—</span> <br/> <strong>Última atualização da base:</strong> <span id="info-updated">—</span></p>
+        <p class="api-meta"><strong>Total de CNPJs cadastrados na base:</strong> <span id="info-total"></span> <br/> <strong>Última atualização da base:</strong> <span id="info-updated"></span></p>
 
         <div class="download-block">
           <p id="zip-desc">Prefere trabalhar offline ou integrar localmente? Baixe a base completa de CNPJs em um único arquivo ZIP e processe no seu próprio ambiente. O pacote é atualizado mensalmente, em formato aberto.</p>
           <div class="actions">
             <a id="zip-download" class="btn primary" href="#" target="_blank" rel="noopener" download>Baixar base completa (.zip)</a>
-            <span id="zip-size" class="badge">Tamanho: —</span>
+            <span id="zip-size" class="badge">Tamanho:</span>
           </div>
           <div class="alert warning" role="note" aria-label="Aviso sobre tamanho descompactado">
             <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
@@ -180,8 +180,8 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
             </div>
           </div>
           <p class="api-meta">
-            <strong>URL:</strong> <a id="zip-url" href="#" target="_blank" rel="noopener">—</a><br/>
-            <strong>MD5:</strong> <code id="zip-md5">—</code>
+            <strong>URL:</strong> <a id="zip-url" href="#" target="_blank" rel="noopener"></a><br/>
+            <strong>MD5:</strong> <code id="zip-md5"></code>
           </p>
         </div>
 
@@ -238,7 +238,7 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
           <details>
             <summary>Posso usar o serviço gratuitamente na minha empresa/serviço?</summary>
             <div class="answer">
-              <p>Sim. O uso é gratuito, inclusive para fins comerciais. Nosso SLA é de <strong>99,9%</strong>. Não oferecemos suporte dedicado.</p>
+              <p>Sim. O uso é gratuito, inclusive para fins comerciais. Não oferecemos suporte dedicado.</p>
             </div>
           </details>
 
@@ -259,8 +259,10 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
           <details>
             <summary>Posso consultar massivamente os dados?</summary>
             <div class="answer">
-              <p>Sim, desde que respeite o rate limit de <strong>50 requisições por segundo por IP</strong>. Uso exagerado (bots/scraping da base inteira) pode gerar bloqueio temporário ou redução do limite.</p>
-              <p>Para obter o conjunto completo, utilize o arquivo <strong>.zip</strong> mencionado na seção <em>Dados</em> — não há necessidade de fazer scraping da base inteira.</p>
+              <p>A API é pública e existe para o bem de todos. Para evitar que um mau uso prejudique outros usuários, <strong>não toleramos mais grandes volumes de consultas massivas</strong> (ex.: validação de bases inteiras sem intervalos).</p>
+              <p>Sobre limites: aceitamos <strong>picos de até 50 requisições/segundo por IP</strong>. Porém, para <strong>validação de bases</strong>, utilize o arquivo <strong>.zip</strong> disponível na seção <em>Dados</em> é muito mais rápido e adequado inclusive para quem deseja apenas validar.</p>
+              <p>Caso identifiquemos validação de bases inteiras sem pausas, aplicaremos <strong>dois bloqueios temporários</strong>; se continuar, aplicaremos um <strong>bloqueio permanente</strong>. Contamos com o bom senso: <strong>validar 10 mil CNPJs</strong> é muito diferente de <strong>validar 1 milhão</strong>.</p>
+              <p>Estamos trabalhando em uma solução para permitir <strong>consultas em batch</strong>. Até lá, por favor, <strong>use o ZIP</strong> para validação de bases.</p>
             </div>
           </details>
 
