@@ -179,6 +179,11 @@ input:not([type]){
 h2{margin:18px 0 8px;font-size:22px}
 p, li{color:var(--neutral)}
 
+/* Libraries list (language icons) */
+.lib-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+.lib-item{display:flex;align-items:center;gap:10px}
+.lang-icon{width:20px;height:20px;flex:0 0 20px;border-radius:6px}
+
 /* Focus styles for accessibility */
 :focus{outline:none}
 .btn:focus, input:focus{
@@ -198,6 +203,17 @@ p, li{color:var(--neutral)}
 .faq summary:hover{background:rgba(255,255,255,.04)}
 .faq summary::-webkit-details-marker{display:none}
 .faq .answer{padding:0 14px 14px;color:var(--neutral)}
+
+/* Libraries table */
+.table-scroll{overflow:auto}
+.lib-table{width:100%;border-collapse:collapse;min-width:520px;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.lib-table th,.lib-table td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left}
+.lib-table th:not(:last-child),
+.lib-table td:not(:last-child){border-right:1px solid var(--border)}
+.lib-table thead th{color:var(--muted);font-weight:700;font-size:14px;background:rgba(255,255,255,.02)}
+.lib-table tbody td{font-size:15px}
+/* Space between table and hint text */
+#bibliotecas .hint{margin-top:12px}
 /* Expand arrow */
 .faq summary::after{content:'\25B8'; /* ▸ */ position:absolute; right:12px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:14px; transition:transform .15s ease, color .15s ease}
 .faq details[open] summary::after{content:'\25BE'; /* ▾ */ color:var(--primary)}
