@@ -165,6 +165,7 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
         <p>Todos os dados são disponibilizados publicamente pela Receita Federal. A base é atualizada mensalmente, conforme a publicação mensal dos dados pela Receita Federal.</p>
         <p class="api-meta"><strong>Total de CNPJs cadastrados na base:</strong> <span id="info-total"></span> <br/> <strong>Última atualização da base:</strong> <span id="info-updated"></span></p>
 
+        <h3>Download completo (ZIP)</h3>
         <div class="download-block">
           <p id="zip-desc">Prefere trabalhar offline ou integrar localmente? Baixe a base completa de CNPJs em um único arquivo ZIP e processe no seu próprio ambiente. O pacote é atualizado mensalmente, em formato aberto.</p>
           <div class="actions">
@@ -183,16 +184,24 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
             <strong>URL:</strong> <a id="zip-url" href="#" target="_blank" rel="noopener"></a><br/>
             <strong>MD5:</strong> <code id="zip-md5"></code>
           </p>
-        </div>
-
-        <div class="alert info" role="note" aria-label="Automatize o download da base">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
-            <path d="M11 7h2v2h-2V7zm0 4h2v6h-2v-6zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
-          </svg>
-          <div>
-            Caso decida por hostear a base você mesmo e quer automatizar o fluxo de atualização, acesse <a href="https://api.opencnpj.org/info" target="_blank" rel="noopener">https://api.opencnpj.org/info</a>. O retorno contém a data da última atualização, a URL do ZIP para download e o MD5 para verificação.
+          <div class="alert info" role="note" aria-label="Automatize o download da base">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+              <path d="M11 7h2v2h-2V7zm0 4h2v6h-2v-6zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+            </svg>
+            <div>
+              Quer automatizar o fluxo de atualização? Consulte <a href="https://api.opencnpj.org/info" target="_blank" rel="noopener">https://api.opencnpj.org/info</a> para obter a data mais recente, a URL do ZIP e o MD5 para verificação.
+            </div>
           </div>
         </div>
+
+        <h3>Dataset público no BigQuery</h3>
+        <div class="download-block">
+          <p>Todos os dados disponibilizados pela API estão replicados em um dataset do <strong>Google BigQuery</strong>. Priorize essa opção para consultas analíticas, validação em massa e enriquecimento de leads diretamente na nuvem, sem precisar baixar o ZIP.</p>
+          <div class="actions">
+            <a class="btn" href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">Abrir no BigQuery</a>
+          </div>
+        </div>
+
       </section>
 
       <section id="codigo-aberto">
@@ -314,9 +323,9 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
             <summary>Posso consultar massivamente os dados?</summary>
             <div class="answer">
               <p>A API é pública e existe para o bem de todos. Para evitar que um mau uso prejudique outros usuários, <strong>não toleramos mais grandes volumes de consultas massivas</strong> (ex.: validação de bases inteiras sem intervalos).</p>
-              <p>Sobre limites: aceitamos <strong>picos de até 50 requisições/segundo por IP</strong>. Porém, para <strong>validação de bases</strong>, utilize o arquivo <strong>.zip</strong> disponível na seção <em>Dados</em> é muito mais rápido e adequado inclusive para quem deseja apenas validar.</p>
+              <p>Sobre limites: aceitamos <strong>picos de até 50 requisições/segundo por IP</strong>. Porém, para <strong>validação de bases</strong> ou consultas analíticas em larga escala, utilize o arquivo <strong>.zip</strong> disponível na seção <em>Dados</em> ou acesse <a href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">nosso dataset público no BigQuery</a>, que replica integralmente os dados da API.</p>
               <p>Caso identifiquemos validação de bases inteiras sem pausas, aplicaremos <strong>dois bloqueios temporários</strong>; se continuar, aplicaremos um <strong>bloqueio permanente</strong>. Contamos com o bom senso: <strong>validar 10 mil CNPJs</strong> é muito diferente de <strong>validar 1 milhão</strong>.</p>
-              <p>Estamos trabalhando em uma solução para permitir <strong>consultas em batch</strong>. Até lá, por favor, <strong>use o ZIP</strong> para validação de bases.</p>
+              <p>Se precisar de um fluxo automatizado para <strong>consultas em batch</strong>, utilize preferencialmente o dataset no BigQuery ou o download do ZIP em vez de chamar a API individualmente.</p>
             </div>
           </details>
 
