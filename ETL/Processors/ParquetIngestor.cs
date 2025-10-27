@@ -605,6 +605,7 @@ public class ParquetIngestor : IDisposable
                         ELSE []
                     END,
                     natureza_juridica := COALESCE(nat.descricao, ''),
+                    tipo_logradouro := COALESCE(e.tipo_logradouro, ''),
                     logradouro := COALESCE(e.logradouro, ''),
                     numero := COALESCE(e.numero, ''),
                     complemento := COALESCE(e.complemento, ''),
