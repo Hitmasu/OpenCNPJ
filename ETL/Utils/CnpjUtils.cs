@@ -11,7 +11,6 @@ public static class CnpjUtils
     private static readonly Regex InvalidCharacters = new(@"[^A-Z\d./-]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex BaseCnpjPattern = new(@"^[A-Z\d]{12}$", RegexOptions.Compiled);
     private static readonly Regex FullCnpjPattern = new(@"^[A-Z\d]{12}\d{2}$", RegexOptions.Compiled);
-    private const string ZeroedCnpj = "00000000000000";
     private const int BaseLength = 12;
 
     /// <summary>
@@ -42,9 +41,6 @@ public static class CnpjUtils
             return false;
 
         if (!FullCnpjPattern.IsMatch(raw))
-            return false;
-
-        if (raw == ZeroedCnpj)
             return false;
 
         if (IsRepeatedSequence(raw))
