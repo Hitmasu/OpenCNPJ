@@ -407,9 +407,7 @@ public class ParquetIngestor : IDisposable
         AnsiConsole.MarkupLine("[cyan]Carregando tabelas Parquet para memória...[/]");
         await LoadParquetTablesForConnection(_connection);
 
-        var cnpjBasico = cnpj[..8];
-        var cnpjOrdem = cnpj.Substring(8, 4);
-        var cnpjDv = cnpj.Substring(12, 2);
+        var (cnpjBasico, cnpjOrdem, cnpjDv) = CnpjUtils.ParseCnpj(cnpj);
         var prefixStr = cnpjBasico[..2];
 
         AnsiConsole.MarkupLine($"[yellow]🎯 Buscando CNPJ {cnpj} (prefixo {prefixStr})...[/]");

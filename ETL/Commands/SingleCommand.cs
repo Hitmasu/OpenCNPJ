@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using CNPJExporter.Configuration;
 using CNPJExporter.Processors;
+using CNPJExporter.Utils;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -14,7 +15,7 @@ public class SingleSettings : CommandSettings
 
     public override ValidationResult Validate()
     {
-        if (string.IsNullOrWhiteSpace(Cnpj) || Cnpj.Length != 14 || !Cnpj.All(char.IsDigit))
+        if (!CnpjUtils.IsValidFormat(Cnpj))
             return ValidationResult.Error("Informe --cnpj com 14 dígitos.");
         return ValidationResult.Success();
     }
