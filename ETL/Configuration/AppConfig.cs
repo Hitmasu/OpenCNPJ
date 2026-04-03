@@ -7,7 +7,7 @@ public class AppConfig
     public PathsConfig Paths { get; set; } = new();
     public RcloneSettings Rclone { get; set; } = new();
     public DuckDbSettings DuckDb { get; set; } = new();
-    public NdjsonSettings Ndjson { get; set; } = new();
+    public ShardSettings Shards { get; set; } = new();
     public DownloaderSettings Downloader { get; set; } = new();
 
     public class PathsConfig
@@ -16,7 +16,7 @@ public class AppConfig
         public string ParquetDir { get; set; } = string.Empty;
         public string OutputDir { get; set; } = string.Empty;
         public string DownloadDir { get; set; } = string.Empty;
-        public string HashCacheDir { get; set; } = string.Empty;
+        public string WorkerAssetsDir { get; set; } = string.Empty;
     }
 
     public class RcloneSettings
@@ -33,19 +33,22 @@ public class AppConfig
         public string MemoryLimit { get; set; } = string.Empty;
         public int EngineThreads { get; set; } = 0;
         public bool PreserveInsertionOrder { get; set; } = false;
+        public int PartitionedWriteMaxOpenFiles { get; set; } = 16;
     }
 
-    public class NdjsonSettings
+    public class ShardSettings
     {
-        public int BatchUploadSize { get; set; } = 0;
-        public bool NormalizeBeforeHash { get; set; } = false;
-        public bool WriteJsonFiles { get; set; } = false;
+        public int PrefixLength { get; set; } = 3;
         public int MaxParallelProcessing { get; set; } = 0;
+        public int QueryBatchSize { get; set; } = 4;
+        public int SparseIndexStride { get; set; } = 256;
+        public string RemoteDir { get; set; } = "shards";
     }
 
     public class DownloaderSettings
     {
         public int ParallelDownloads { get; set; } = 0;
+        public string PublicShareRoot { get; set; } = string.Empty;
     }
 
     public static AppConfig Current { get; private set; } = new();

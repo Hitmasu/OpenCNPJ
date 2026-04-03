@@ -2,9 +2,9 @@
   "Paths": {
     "DataDir": "./extracted_data",
     "ParquetDir": "./parquet_data",
-    "OutputDir": "./cnpj_ndjson",
+    "OutputDir": "./cnpj_shards",
     "DownloadDir": "./downloads",
-    "HashCacheDir": "./hash_cache"
+    "WorkerAssetsDir": "../Worker/assets"
   },
   "Rclone": {
     "RemoteBase": "Opencnpj:opencnpj/files",
@@ -12,19 +12,22 @@
     "MaxConcurrentUploads": 4
   },
   "DuckDb": {
-    "UseInMemory": true,
-    "ThreadsPragma": 2,
-    "MemoryLimit": "5GB",
-    "EngineThreads": 2,
-    "PreserveInsertionOrder": false
+    "UseInMemory": false,
+    "ThreadsPragma": 1,
+    "MemoryLimit": "14GB",
+    "EngineThreads": 1,
+    "PreserveInsertionOrder": false,
+    "PartitionedWriteMaxOpenFiles": 16
   },
-  "Ndjson": {
-    "BatchUploadSize": 10000,
-    "NormalizeBeforeHash": false,
-    "WriteJsonFiles": false,
-    "MaxParallelProcessing": 8
+  "Shards": {
+    "PrefixLength": 3,
+    "RemoteDir": "shards",
+    "MaxParallelProcessing": 8,
+    "QueryBatchSize": 4,
+    "SparseIndexStride": 256
   },
   "Downloader": {
-    "ParallelDownloads": 6
+    "ParallelDownloads": 2,
+    "PublicShareRoot": "https://arquivos.receitafederal.gov.br/public.php/dav/files/YggdBLfdninEJX9/"
   }
 }

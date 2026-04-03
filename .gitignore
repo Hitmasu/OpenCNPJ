@@ -71,3 +71,12 @@ download_data/
 output_data/
 temp/
 *.tmp
+Worker/assets/
+Worker/wrangler.toml
+ETL/*.nettrace
+ETL/*.speedscope.json
+ETL/cnpj.duckdb
+ETL/cnpj_shards/
+ETL/downloads/
+ETL/hash_cache/
+cnpj.duckdb

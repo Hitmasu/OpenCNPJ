@@ -1,0 +1,29 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ETL", "ETL", "{1E2D8D39-8734-0DFC-3B2E-D38A34386C46}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CNPJExporter", "ETL\CNPJExporter.csproj", "{DBE909D6-CF2B-754F-D9E8-80DE31E1A81C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DBE909D6-CF2B-754F-D9E8-80DE31E1A81C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DBE909D6-CF2B-754F-D9E8-80DE31E1A81C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DBE909D6-CF2B-754F-D9E8-80DE31E1A81C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DBE909D6-CF2B-754F-D9E8-80DE31E1A81C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{DBE909D6-CF2B-754F-D9E8-80DE31E1A81C} = {1E2D8D39-8734-0DFC-3B2E-D38A34386C46}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E851CEF2-23C4-4624-8FDF-84CFB6751CF0}
+	EndGlobalSection
+EndGlobal

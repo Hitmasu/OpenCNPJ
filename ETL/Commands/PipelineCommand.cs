@@ -2,6 +2,7 @@ using System.ComponentModel;
 using CNPJExporter.Configuration;
 using CNPJExporter.Downloaders;
 using CNPJExporter.Processors;
+using CNPJExporter.Utils;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -18,29 +19,24 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
 {
     public override async Task<int> ExecuteAsync(CommandContext context, PipelineSettings settings)
     {
-        var month = settings.Month ?? DateTime.Now.ToString("yyyy-MM");
-
-        AnsiConsole.MarkupLine($"[cyan]1/6 Baixando dados de {month}...[/]");
+        AnsiConsole.MarkupLine("[cyan]1/5 Baixando dados da Receita...[/]");
         var downloader = new WebDownloader(AppConfig.Current.Paths.DownloadDir, AppConfig.Current.Paths.DataDir);
-        await downloader.DownloadAndExtractAsync(month);
+        var selectedMonth = await downloader.DownloadAndExtractAsync(settings.Month);
 
-        using var ingestor = new ParquetIngestor();
+        using var ingestor = new ParquetIngestor(selectedMonth);
 
-        AnsiConsole.MarkupLine("[cyan]2/6 Convertendo CSVs para Parquet...[/]");
+        AnsiConsole.MarkupLine($"[cyan]2/5 Convertendo CSVs de {selectedMonth} para Parquet...[/]");
         await ingestor.ConvertCsvsToParquet();
 
-        AnsiConsole.MarkupLine("[cyan]3/6 Export + Upload integrado para Storage...[/]");
+        AnsiConsole.MarkupLine($"[cyan]3/5 Gerando shards e enviando {selectedMonth} para Storage...[/]");
         await ingestor.ExportAndUploadToStorage(AppConfig.Current.Paths.OutputDir);
 
-        AnsiConsole.MarkupLine("[cyan]4/6 Testando integridade por amostragem...[/]");
-        var tester = new IntegrityTester();
-        await tester.RunAsync();
+        AnsiConsole.MarkupLine("[cyan]4/5 Gerando e enviando estatística final...[/]");
+        await ingestor.GenerateAndUploadFinalInfoJsonAsync();
 
-        AnsiConsole.MarkupLine("[cyan]5/6 Gerando ZIP consolidado...[/]");
-        var zipPath = await ingestor.ExportJsonsToZip("cnpj_json_export");
-
-        AnsiConsole.MarkupLine("[cyan]6/6 Gerando e enviando estatística final...[/]");
-        await ingestor.GenerateAndUploadFinalInfoJsonAsync(zipPath);
+        AnsiConsole.MarkupLine("[cyan]5/5 Preparando índices e info para Static Assets do Worker...[/]");
+        var stagedAssetsPath = await WorkerAssetStager.StageAsync(selectedMonth);
+        AnsiConsole.MarkupLine($"[green]✓ Static Assets preparados em[/] [grey]{stagedAssetsPath.EscapeMarkup()}[/]");
 
         AnsiConsole.MarkupLine("[green]✅ Pipeline completo concluído![/]");
         return 0;
