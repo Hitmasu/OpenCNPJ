@@ -71,3 +71,13 @@ download_data/
 output_data/
 temp/
 *.tmp
+src/Worker/assets/
+src/ETL/Processor/*.nettrace
+src/ETL/Processor/*.speedscope.json
+src/ETL/Processor/cnpj.duckdb
+src/ETL/Processor/cnpj_shards/
+src/ETL/Processor/downloads/
+src/ETL/Processor/hash_cache/
+src/ETL/Processor/extracted_data/
+src/ETL/Processor/parquet_data/
+src/ETL/Processor/temp/

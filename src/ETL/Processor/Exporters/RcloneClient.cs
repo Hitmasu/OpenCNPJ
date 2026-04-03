@@ -16,20 +16,21 @@ public static class RcloneClient
 
     private static int Transfers => Math.Max(1, AppConfig.Current.Rclone.Transfers);
 
-    public static async Task<bool> UploadFolderAsync(string localFolderPath, ProgressTask? progressTask = null)
+    public static async Task<bool> UploadFolderAsync(string localFolderPath, string? remoteRelativePath = null, ProgressTask? progressTask = null)
     {
         await UploadSemaphore.WaitAsync();
         try
         {
-            var remote = RemoteBase + "/";
+            var remote = string.IsNullOrWhiteSpace(remoteRelativePath)
+                ? RemoteBase + "/"
+                : RemoteBase + "/" + remoteRelativePath.Trim('/');
 
             using var process = new Process();
             process.StartInfo.FileName = "rclone";
             process.StartInfo.Arguments =
                 $"copy \"{localFolderPath}\" \"{remote}\" " +
                 $"--progress --stats=1s --transfers={Transfers} " +
-                $"--no-traverse --no-check-dest --fast-list=false " +
-                $"--ignore-times --ignore-size --ignore-checksum " +
+                $"--checksum --fast-list=false " +
                 $"--no-update-modtime " +
                 $"--buffer-size=128M --checkers=1 " +
                 $"--bwlimit=off " +
@@ -102,7 +103,7 @@ public static class RcloneClient
             using var process = new Process();
             process.StartInfo.FileName = "rclone";
             process.StartInfo.Arguments = $"copyto \"{remotePath}\" \"{localFilePath}\" " +
-                $"--retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off";
+                $"--checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off";
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.RedirectStandardOutput = true;
             process.StartInfo.RedirectStandardError = true;
@@ -145,7 +146,7 @@ public static class RcloneClient
             using var process = new Process();
             process.StartInfo.FileName = "rclone";
             process.StartInfo.Arguments = $"copyto \"{localFilePath}\" \"{remotePath}\" " +
-                $"--retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off --no-update-modtime";
+                $"--checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off --no-update-modtime";
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.RedirectStandardOutput = true;
             process.StartInfo.RedirectStandardError = true;

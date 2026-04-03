@@ -1,0 +1,33 @@
+{
+  "Paths": {
+    "DataDir": "./extracted_data",
+    "ParquetDir": "./parquet_data",
+    "OutputDir": "./cnpj_shards",
+    "DownloadDir": "./downloads",
+    "WorkerAssetsDir": "../../Worker/assets"
+  },
+  "Rclone": {
+    "RemoteBase": "Opencnpj:opencnpj/files",
+    "Transfers": 100,
+    "MaxConcurrentUploads": 4
+  },
+  "DuckDb": {
+    "UseInMemory": false,
+    "ThreadsPragma": 1,
+    "MemoryLimit": "14GB",
+    "EngineThreads": 1,
+    "PreserveInsertionOrder": false,
+    "PartitionedWriteMaxOpenFiles": 16
+  },
+  "Shards": {
+    "PrefixLength": 3,
+    "RemoteDir": "shards",
+    "MaxParallelProcessing": 8,
+    "QueryBatchSize": 4,
+    "SparseIndexStride": 256
+  },
+  "Downloader": {
+    "ParallelDownloads": 2,
+    "PublicShareRoot": "https://arquivos.receitafederal.gov.br/public.php/dav/files/YggdBLfdninEJX9/"
+  }
+}
