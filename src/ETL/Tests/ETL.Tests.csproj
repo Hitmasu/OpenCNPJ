@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ETL\CNPJExporter.csproj" />
+    <ProjectReference Include="..\Processor\CNPJExporter.csproj" />
   </ItemGroup>
 
 </Project>

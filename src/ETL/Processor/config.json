@@ -4,7 +4,7 @@
     "ParquetDir": "./parquet_data",
     "OutputDir": "./cnpj_shards",
     "DownloadDir": "./downloads",
-    "WorkerAssetsDir": "../Worker/assets"
+    "WorkerAssetsDir": "../../Worker/assets"
   },
   "Rclone": {
     "RemoteBase": "Opencnpj:opencnpj/files",

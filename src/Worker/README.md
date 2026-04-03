@@ -15,13 +15,13 @@ Worker Cloudflare que lê os índices publicados como Static Assets e os shards 
 - Usa Cache API para a resposta final do endpoint.
 - Usa cache quente em memória do isolate para índices de shard recentemente lidos.
 - Assume que os artefatos publicados pelo ETL ficam sob o prefixo `files/`.
-- O pipeline do ETL prepara automaticamente `Worker/assets/files/info.json` e `Worker/assets/files/shards/*.index.json` para o próximo deploy.
+- O pipeline do ETL prepara automaticamente `src/Worker/assets/files/info.json` e `src/Worker/assets/files/shards/*.index.json` para o próximo deploy.
 
 ## Deploy
 
-1. Rode a pipeline do ETL para preparar `Worker/assets/` com os índices e o `info.json` do dataset atual.
+1. Rode a pipeline do ETL em `src/ETL/Processor` para preparar `src/Worker/assets/` com os índices e o `info.json` do dataset atual.
 2. Ajuste `bucket_name` em [`wrangler.toml`](./wrangler.toml) para o nome real do bucket R2.
-3. Execute `wrangler deploy` dentro da pasta `Worker/`.
+3. Execute `wrangler deploy` dentro da pasta `src/Worker/`.
 
 ## Observação
 

@@ -1,12 +1,14 @@
-<img src="./Page/assets/logo.svg" alt="OpenCNPJ" height="64" />
+<img src="./src/Page/assets/logo.svg" alt="OpenCNPJ" height="64" />
 
 Projeto aberto para baixar, processar e publicar dados públicos das empresas do Brasil.
 
 ## Pastas
 
-- `ETL`: ETL que baixa, processa e publica dados do CNPJ.
-- `Page`: página/SPA estática para consulta dos dados publicados.
-- `Worker`: placeholder do Cloudflare Worker que lê shards publicados no R2.
+- `src/ETL/Processor`: ETL que baixa, processa e publica dados do CNPJ.
+- `src/ETL/Tests`: testes do ETL.
+- `src/ETL/OpenCNPJ.sln`: solution do ETL.
+- `src/Page`: página/SPA estática para consulta dos dados publicados.
+- `src/Worker`: Worker Cloudflare que lê shards publicados no R2.
 
 ## Requisitos
 
@@ -16,7 +18,7 @@ Projeto aberto para baixar, processar e publicar dados públicos das empresas do
 
 ## Configuração
 
-- Ajuste `ETL/config.json` se desejar mudar pastas locais, destino do storage, memória, paralelismo... 
+- Ajuste `src/ETL/Processor/config.json` se desejar mudar pastas locais, destino do storage, memória, paralelismo...
 - No `config.json`, aponte para o Storage que deseja passando a configuração do rclone.
 - O downloader da Receita agora usa WebDAV no share público do SERPRO+/Nextcloud.
 
@@ -27,13 +29,14 @@ Projeto aberto para baixar, processar e publicar dados públicos das empresas do
 - `parquet_data/YYYY-MM`: Parquets gerados para o mês.
 - `cnpj_shards/YYYY-MM/shards`: shards locais `*.ndjson` e `*.index.json` antes do upload.
 
-Os artefatos locais não são apagados automaticamente. O pipeline também não usa mais cache de hash por shard.
+Os artefatos locais não são apagados automaticamente, exceto quando o pipeline é executado com `--cleanup-on-success`. O pipeline também não usa mais cache de hash por shard.
 
 ## Execução
 
-- Dentro de `ETL`:
+- Dentro de `src/ETL/Processor`:
   - `dotnet run pipeline`
   - `dotnet run pipeline -m YYYY-MM` (opcional)
+  - `dotnet run pipeline --cleanup-on-success` (opcional, remove artefatos locais do dataset após sucesso)
 
 Sem `-m`, o pipeline escolhe o mês mais recente publicado no share WebDAV da Receita.
 

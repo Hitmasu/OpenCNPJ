@@ -1,0 +1,14 @@
+name = "opencnpj-worker"
+main = "src/index.ts"
+compatibility_date = "2026-03-18"
+
+workers_dev = true
+
+[assets]
+directory = "./assets"
+binding = "ASSETS"
+run_worker_first = true
+
+[[r2_buckets]]
+binding = "CNPJ_BUCKET"
+bucket_name = "opencnpj"

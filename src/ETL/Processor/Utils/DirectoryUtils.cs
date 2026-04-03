@@ -2,6 +2,30 @@ namespace CNPJExporter.Utils;
 
 public static class DirectoryUtils
 {
+    public static async Task DeleteDirectoryIfExistsAsync(string path)
+    {
+        if (!Directory.Exists(path))
+            return;
+
+        Exception? lastError = null;
+
+        for (var attempt = 1; attempt <= 5; attempt++)
+        {
+            try
+            {
+                DeleteDirectoryTree(path);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                lastError = ex;
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt));
+            }
+        }
+
+        throw new IOException($"Falha ao remover diretório '{path}'.", lastError);
+    }
+
     public static async Task RecreateDirectoryAsync(string path)
     {
         if (!Directory.Exists(path))
@@ -53,18 +77,14 @@ public static class DirectoryUtils
     {
         Exception? lastError = null;
 
-        for (var attempt = 1; attempt <= 5; attempt++)
+        try
         {
-            try
-            {
-                DeleteDirectoryTree(path);
-                return;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                lastError = ex;
-                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt));
-            }
+            await DeleteDirectoryIfExistsAsync(path);
+            return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            lastError = ex;
         }
 
         if (lastError is not null)
