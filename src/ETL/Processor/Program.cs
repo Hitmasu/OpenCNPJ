@@ -13,7 +13,7 @@ app.Configure(config =>
     config.SetApplicationName("opencnpj-etl");
     config.ValidateExamples();
 
-    config.AddCommand<PipelineCommand>("pipeline").WithDescription("Pipeline principal (download → ingest → shards → info → assets)");
+    config.AddCommand<PipelineCommand>("pipeline").WithDescription("Pipeline principal (download → ingest → shards versionados → info)");
 });
 
 return app.Run(args);

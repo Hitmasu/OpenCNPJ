@@ -3,18 +3,19 @@
     "DataDir": "./extracted_data",
     "ParquetDir": "./parquet_data",
     "OutputDir": "./cnpj_shards",
-    "DownloadDir": "./downloads",
-    "WorkerAssetsDir": "../../Worker/assets"
+    "DownloadDir": "./downloads"
   },
   "Rclone": {
     "RemoteBase": "Opencnpj:opencnpj/files",
     "Transfers": 100,
-    "MaxConcurrentUploads": 4
+    "MaxConcurrentUploads": 4,
+    "UploadVerificationRetries": 3,
+    "UploadVerificationDelaySeconds": 15
   },
   "DuckDb": {
     "UseInMemory": false,
     "ThreadsPragma": 1,
-    "MemoryLimit": "14GB",
+    "MemoryLimit": "4GB",
     "EngineThreads": 1,
     "PreserveInsertionOrder": false,
     "PartitionedWriteMaxOpenFiles": 16
@@ -23,8 +24,7 @@
     "PrefixLength": 3,
     "RemoteDir": "shards",
     "MaxParallelProcessing": 8,
-    "QueryBatchSize": 4,
-    "SparseIndexStride": 256
+    "QueryBatchSize": 4
   },
   "Downloader": {
     "ParallelDownloads": 2,

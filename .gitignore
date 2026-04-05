@@ -72,6 +72,7 @@ output_data/
 temp/
 *.tmp
 src/Worker/assets/
+src/Worker/.wrangler/
 src/ETL/Processor/*.nettrace
 src/ETL/Processor/*.speedscope.json
 src/ETL/Processor/cnpj.duckdb

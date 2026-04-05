@@ -44,8 +44,7 @@ public sealed class LocalArtifactCleanerTests
                     "DownloadDir": "{{Path.Combine(processorDir, "downloads").Replace("\\", "\\\\")}}",
                     "DataDir": "{{Path.Combine(processorDir, "extracted_data").Replace("\\", "\\\\")}}",
                     "ParquetDir": "{{Path.Combine(processorDir, "parquet_data").Replace("\\", "\\\\")}}",
-                    "OutputDir": "{{Path.Combine(processorDir, "cnpj_shards").Replace("\\", "\\\\")}}",
-                    "WorkerAssetsDir": "{{workerAssetsDir.Replace("\\", "\\\\")}}"
+                    "OutputDir": "{{Path.Combine(processorDir, "cnpj_shards").Replace("\\", "\\\\")}}"
                   },
                   "DuckDb": {
                     "UseInMemory": false
