@@ -176,6 +176,10 @@ copy_worker_assets() {
   find "$source_shards" -maxdepth 1 -type f -name '*.index.bin' -exec cp {} "${WORKER_ASSETS_SHARDS_DIR}/" \;
 }
 
+cleanup_worker_shard_assets() {
+  rm -rf "${WORKER_ASSETS_SHARDS_DIR}"
+}
+
 validate_endpoint() {
   local url="$1"
   local expected_release="$2"
@@ -281,8 +285,20 @@ fi
 
 log "Executando ETL"
 pushd "$ETL_DIR" >/dev/null
+set +e
 dotnet run "${PIPELINE_ARGS[@]}"
+PIPELINE_EXIT_CODE=$?
+set -e
 popd >/dev/null
+
+if [[ "$PIPELINE_EXIT_CODE" -eq 10 ]]; then
+  log "Nenhuma base nova para publicar; deploy encerrado sem alterações."
+  exit 0
+fi
+
+if [[ "$PIPELINE_EXIT_CODE" -ne 0 ]]; then
+  exit "$PIPELINE_EXIT_CODE"
+fi
 
 DATASET_KEY="$(resolve_dataset_key)"
 log "Dataset usado: ${DATASET_KEY}"
@@ -313,5 +329,8 @@ validate_endpoint "${DEPLOY_URL%/}/${MASKED_VALIDATE_CNPJ}" "$RELEASE_ID"
 if [[ -n "$OLD_RELEASE_ID" && "$OLD_RELEASE_ID" != "$RELEASE_ID" ]]; then
   delete_old_release "$OLD_RELEASE_ID"
 fi
+
+log "Limpando shards staged do frontend"
+cleanup_worker_shard_assets
 
 log "Deploy concluído com sucesso"

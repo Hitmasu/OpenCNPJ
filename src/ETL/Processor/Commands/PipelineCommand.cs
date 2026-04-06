@@ -13,7 +13,7 @@ namespace CNPJExporter.Commands;
 public class PipelineSettings : CommandSettings
 {
     [CommandOption("--month|-m")]
-    [Description("Mês (YYYY-MM). Padrão: mês anterior")]
+    [Description("Mês (YYYY-MM). Se omitido, processa apenas o mês atual quando ele já estiver disponível na Receita.")]
     public string? Month { get; init; }
 
     [CommandOption("--cleanup-on-success")]
@@ -23,6 +23,7 @@ public class PipelineSettings : CommandSettings
     [CommandOption("--release-id")]
     [Description("Identificador do release no storage. Se omitido, o ETL gera um hash curto automaticamente.")]
     public string? ReleaseId { get; init; }
+
 }
 
 public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
@@ -30,10 +31,32 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
     public override async Task<int> ExecuteAsync(CommandContext context, PipelineSettings settings)
     {
         var totalSteps = settings.CleanupOnSuccess ? 5 : 4;
+        var currentMonth = DatasetPublicationPolicy.GetCurrentMonth();
+
+        if (string.IsNullOrWhiteSpace(settings.Month))
+        {
+            var publishedInfoClient = new PublishedInfoClient();
+            var publishedLastUpdated = await publishedInfoClient.GetPublishedLastUpdatedAsync();
+            if (DatasetPublicationPolicy.TryGetPublishedMonth(publishedLastUpdated, out var publishedMonth)
+                && string.Equals(publishedMonth, currentMonth, StringComparison.Ordinal))
+            {
+                AnsiConsole.MarkupLine($"[yellow]ℹ️ A API publicada já está no mês atual ({publishedMonth}); nada para fazer.[/]");
+                return DatasetPublicationPolicy.NoNewDatasetExitCode;
+            }
+        }
 
         AnsiConsole.MarkupLine($"[cyan]1/{totalSteps} Baixando dados da Receita...[/]");
         var downloader = new WebDownloader(AppConfig.Current.Paths.DownloadDir, AppConfig.Current.Paths.DataDir);
-        var selectedMonth = await downloader.DownloadAndExtractAsync(settings.Month);
+        var availableMonths = await downloader.GetAvailableMonthsAsync();
+
+        if (!DatasetPublicationPolicy.TrySelectMonthToProcess(settings.Month, availableMonths, out var selectedMonth, out var latestAvailableMonth))
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow]ℹ️ Nenhuma base nova para publicar. Último mês disponível na Receita: {latestAvailableMonth}. Mês atual esperado: {currentMonth}[/]");
+            return DatasetPublicationPolicy.NoNewDatasetExitCode;
+        }
+
+        selectedMonth = await downloader.DownloadAndExtractAsync(selectedMonth, availableMonths);
         var releaseId = string.IsNullOrWhiteSpace(settings.ReleaseId)
             ? GenerateReleaseId(selectedMonth)
             : settings.ReleaseId.Trim();
