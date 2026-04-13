@@ -1,6 +1,8 @@
+using System.Buffers.Binary;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Globalization;
+using System.Text;
 using CNPJExporter.Configuration;
 using CNPJExporter.Processors;
 using DuckDB.NET.Data;
@@ -16,6 +18,9 @@ public sealed class ShardGenerationRegressionTests
     private const string ItauCnpj = "60701190000104";
     private const string ItauPrefix = "607";
     private const string SampleShardCnpj = "60700007000148";
+    private const int BinaryIndexHeaderSize = 8;
+    private const int BinaryIndexEntrySize = 26;
+    private const int BinaryIndexCnpjLength = 14;
 
     [TestMethod]
     public async Task CsvRead_ShouldContain_60701190000104_InEstabelecimentoSource()
@@ -163,9 +168,9 @@ public sealed class ShardGenerationRegressionTests
         await ingestor.ExportSingleShardAsync(ItauPrefix, outputRoot);
 
         var shardDataPath = Path.Combine(outputRoot, "2026-03", AppConfig.Current.Shards.RemoteDir, $"{ItauPrefix}.ndjson");
-        var shardIndexPath = Path.Combine(outputRoot, "2026-03", AppConfig.Current.Shards.RemoteDir, $"{ItauPrefix}.index.json");
+        var shardIndexPath = Path.Combine(outputRoot, "2026-03", AppConfig.Current.Shards.RemoteDir, $"{ItauPrefix}.index.bin");
         Assert.IsTrue(File.Exists(shardDataPath), $"O shard {ItauPrefix}.ndjson deveria ser gerado.");
-        Assert.IsTrue(File.Exists(shardIndexPath), $"O índice {ItauPrefix}.index.json deveria ser gerado.");
+        Assert.IsTrue(File.Exists(shardIndexPath), $"O índice {ItauPrefix}.index.bin deveria ser gerado.");
 
         var company = await FindCompanyInShardNdjsonAsync(shardDataPath, SampleShardCnpj);
         Assert.IsNotNull(company, $"O CNPJ {SampleShardCnpj} deveria existir no shard {ItauPrefix}.");
@@ -175,11 +180,19 @@ public sealed class ShardGenerationRegressionTests
         AssertHasNonEmptyString(company, "porte_empresa");
         AssertHasParsableMonetaryString(company, "capital_social");
 
-        using var indexStream = File.OpenRead(shardIndexPath);
-        using var indexDocument = await JsonDocument.ParseAsync(indexStream);
-        Assert.AreEqual("ndjson", indexDocument.RootElement.GetProperty("format").GetString());
-        Assert.AreEqual($"{ItauPrefix}.ndjson", indexDocument.RootElement.GetProperty("data_file").GetString());
-        Assert.IsTrue(indexDocument.RootElement.GetProperty("entries").GetArrayLength() > 0, "O índice deveria ter ao menos uma âncora.");
+        var indexBytes = await File.ReadAllBytesAsync(shardIndexPath);
+        Assert.IsTrue(indexBytes.Length >= 8, "O índice binário deveria conter cabeçalho.");
+        CollectionAssert.AreEqual("OCI1"u8.ToArray(), indexBytes[..4], "O cabeçalho do índice binário deveria conter a magic OCI1.");
+
+        var recordCount = BinaryPrimitives.ReadUInt32LittleEndian(indexBytes.AsSpan(4, sizeof(uint)));
+        Assert.IsTrue(recordCount > 0, "O índice binário deveria ter ao menos um registro.");
+        Assert.AreEqual(
+            BinaryIndexHeaderSize + ((int)recordCount * BinaryIndexEntrySize),
+            indexBytes.Length,
+            "Tamanho inesperado para o índice binário.");
+
+        var firstEntryCnpj = Encoding.ASCII.GetString(indexBytes, BinaryIndexHeaderSize, BinaryIndexCnpjLength);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(firstEntryCnpj), "O primeiro CNPJ indexado não deveria ser vazio.");
     }
 
     private sealed class TestEnvironmentScope : IDisposable
@@ -196,8 +209,8 @@ public sealed class ShardGenerationRegressionTests
 
         public static TestEnvironmentScope Create()
         {
-            var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-            var etlRoot = Path.Combine(repoRoot, "ETL");
+            var repoRoot = ResolveRepoRoot();
+            var etlRoot = Path.Combine(repoRoot, "src", "ETL", "Processor");
             var originalCurrentDirectory = Environment.CurrentDirectory;
             lock (CurrentDirectoryLock)
             {
@@ -209,6 +222,21 @@ public sealed class ShardGenerationRegressionTests
             Directory.CreateDirectory(tempRoot);
 
             return new TestEnvironmentScope(tempRoot, originalCurrentDirectory);
+        }
+
+        private static string ResolveRepoRoot()
+        {
+            var current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current is not null)
+            {
+                var candidate = Path.Combine(current.FullName, "src", "ETL", "Processor");
+                if (Directory.Exists(candidate))
+                    return current.FullName;
+
+                current = current.Parent;
+            }
+
+            throw new DirectoryNotFoundException("Não foi possível localizar a raiz do repositório para os testes de regressão.");
         }
 
         public void Dispose()

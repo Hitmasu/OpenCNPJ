@@ -45,20 +45,34 @@ public class WebDownloader
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("OpenCNPJ", "1.0"));
     }
 
-    public async Task<string> DownloadAndExtractAsync(string? requestedMonth, CancellationToken ct = default)
+    public async Task<List<string>> GetAvailableMonthsAsync(CancellationToken ct = default)
     {
         var monthEntries = await ListDirectoryAsync(_shareRoot, ct);
-        var availableMonths = monthEntries
+        return monthEntries
             .Where(x => x.IsCollection && DatasetPathResolver.IsDatasetKey(x.Name))
             .Select(x => x.Name)
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToList();
+    }
+
+    public async Task<string> DownloadAndExtractAsync(
+        string? requestedMonth,
+        IReadOnlyCollection<string>? availableMonths = null,
+        CancellationToken ct = default)
+    {
+        availableMonths ??= await GetAvailableMonthsAsync(ct);
 
         if (availableMonths.Count == 0)
             throw new InvalidOperationException("Nenhuma pasta mensal encontrada no compartilhamento público da Receita.");
 
-        var selectedMonth = ResolveTargetMonth(requestedMonth, availableMonths);
-        var monthUri = new Uri(_shareRoot, $"{selectedMonth}/");
+        if (!DatasetPublicationPolicy.TrySelectMonthToProcess(requestedMonth, availableMonths, out var selectedMonth, out var latestAvailableMonth))
+        {
+            throw new InvalidOperationException(
+                $"Nenhuma base nova para processar. Último mês disponível na Receita: {latestAvailableMonth}. Mês atual esperado: {DatasetPublicationPolicy.GetCurrentMonth()}.");
+        }
+
+        var resolvedMonth = selectedMonth!;
+        var monthUri = new Uri(_shareRoot, $"{resolvedMonth}/");
         var zipEntries = await ListDirectoryAsync(monthUri, ct);
         var zipFiles = zipEntries
             .Where(x => !x.IsCollection && x.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
@@ -66,35 +80,20 @@ public class WebDownloader
             .ToList();
 
         if (zipFiles.Count == 0)
-            throw new InvalidOperationException($"Nenhum arquivo ZIP encontrado para {selectedMonth}.");
+            throw new InvalidOperationException($"Nenhum arquivo ZIP encontrado para {resolvedMonth}.");
 
-        var localDownloadDir = Path.Combine(_downloadRootDir, selectedMonth);
-        var localExtractDir = Path.Combine(_extractRootDir, selectedMonth);
+        var localDownloadDir = Path.Combine(_downloadRootDir, resolvedMonth);
+        var localExtractDir = Path.Combine(_extractRootDir, resolvedMonth);
         Directory.CreateDirectory(localDownloadDir);
         Directory.CreateDirectory(localExtractDir);
 
-        AnsiConsole.MarkupLine($"[blue]Mês selecionado:[/] [white]{selectedMonth}[/]");
+        AnsiConsole.MarkupLine($"[blue]Mês selecionado:[/] [white]{resolvedMonth}[/]");
         AnsiConsole.MarkupLine($"[blue]Fonte WebDAV:[/] [white]{monthUri}[/]");
 
         var localZips = await DownloadAllAsync(zipFiles, localDownloadDir, ct);
         await ExtractAllAsync(localZips, localExtractDir, ct);
 
-        return selectedMonth;
-    }
-
-    private static string ResolveTargetMonth(string? requestedMonth, IReadOnlyCollection<string> availableMonths)
-    {
-        if (!string.IsNullOrWhiteSpace(requestedMonth))
-        {
-            if (availableMonths.Contains(requestedMonth, StringComparer.Ordinal))
-                return requestedMonth;
-
-            throw new InvalidOperationException($"Mês {requestedMonth} não encontrado no compartilhamento público.");
-        }
-
-        return availableMonths
-            .OrderBy(x => x, StringComparer.Ordinal)
-            .Last();
+        return resolvedMonth;
     }
 
     private async Task<List<DavEntry>> ListDirectoryAsync(Uri directoryUri, CancellationToken ct)

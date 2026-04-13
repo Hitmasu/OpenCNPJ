@@ -9,6 +9,7 @@ Projeto aberto para baixar, processar e publicar dados públicos das empresas do
 - `src/ETL/OpenCNPJ.sln`: solution do ETL.
 - `src/Page`: página/SPA estática para consulta dos dados publicados.
 - `src/Worker`: Worker Cloudflare que lê shards publicados no R2.
+- `src/script`: scripts operacionais, incluindo o deploy versionado do Worker.
 
 ## Requisitos
 
@@ -27,7 +28,7 @@ Projeto aberto para baixar, processar e publicar dados públicos das empresas do
 - `downloads/YYYY-MM`: zips baixados da Receita.
 - `extracted_data/YYYY-MM`: arquivos extraídos para o mês.
 - `parquet_data/YYYY-MM`: Parquets gerados para o mês.
-- `cnpj_shards/YYYY-MM/shards`: shards locais `*.ndjson` e `*.index.json` antes do upload.
+- `cnpj_shards/YYYY-MM/releases/{release_id}/shards`: shards locais `*.ndjson` e `*.index.bin` do release atual.
 
 Os artefatos locais não são apagados automaticamente, exceto quando o pipeline é executado com `--cleanup-on-success`. O pipeline também não usa mais cache de hash por shard.
 
@@ -36,16 +37,28 @@ Os artefatos locais não são apagados automaticamente, exceto quando o pipeline
 - Dentro de `src/ETL/Processor`:
   - `dotnet run pipeline`
   - `dotnet run pipeline -m YYYY-MM` (opcional)
+  - `dotnet run pipeline --release-id abc123...` (opcional, força o release id remoto)
   - `dotnet run pipeline --cleanup-on-success` (opcional, remove artefatos locais do dataset após sucesso)
 
 Sem `-m`, o pipeline escolhe o mês mais recente publicado no share WebDAV da Receita.
 
 ## Publicação
 
-- A API publicada consome shards em `shards/{prefix}.ndjson` no R2 e `shards/{prefix}.index.json` como Static Asset do Worker, onde `prefix` usa os 3 primeiros caracteres do CNPJ normalizado.
-- Cada linha do `*.ndjson` representa um CNPJ e o `*.index.json` guarda offsets esparsos para leitura parcial no Worker.
+- Os shards no R2 são publicados em releases versionados, por exemplo `files/shards/releases/{release_id}/{prefix}.ndjson`.
+- A API publicada consome os `*.ndjson` do release ativo no R2 e `shards/{prefix}.index.bin` como Static Asset do Worker, onde `prefix` usa os 3 primeiros caracteres do CNPJ normalizado.
+- Cada linha do `*.ndjson` representa um CNPJ e o `*.index.bin` guarda `offset` e `length` exatos para leitura direta no Worker.
 - O contrato de CNPJ já aceita formato alfanumérico: 12 caracteres alfanuméricos + 2 dígitos finais.
-- O arquivo `info.json` continua sendo publicado, agora com metadados adicionais de shard.
+- O arquivo `info.json` continua sendo publicado, agora com metadados do release ativo no storage.
+
+## Deploy
+
+- Use `src/script/deploy.sh` para orquestrar o release:
+  - roda o ETL com release versionado
+  - copia `info.json` e `*.index.bin` do release gerado para `src/Worker/assets`
+  - executa `npm test` no Worker
+  - faz `npx wrangler deploy`
+  - valida `/info`, um CNPJ canônico e o mesmo CNPJ mascarado
+  - remove o release antigo do bucket só depois da validação
 
 ## Contribuição
 

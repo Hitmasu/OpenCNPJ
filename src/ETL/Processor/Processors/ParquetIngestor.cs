@@ -12,7 +12,7 @@ namespace CNPJExporter.Processors;
 public class ParquetIngestor : IDisposable
 {
     private const string ShardDataExtension = ".ndjson";
-    private const string ShardIndexExtension = ".index.json";
+    private const string ShardIndexExtension = ".index.bin";
     private readonly string? _datasetKey;
     private readonly string _dataDir;
     private readonly string _parquetDir;
@@ -131,6 +131,16 @@ public class ParquetIngestor : IDisposable
         var partitionedDir = Path.Combine(_parquetDir, tableName);
 
         string[] shardedSourceTables = ["estabelecimento", "empresa", "simples", "socio"];
+        var hasExistingParquet = shardedSourceTables.Contains(tableName)
+            ? Directory.Exists(partitionedDir) && Directory.EnumerateFiles(partitionedDir, "*.parquet", SearchOption.AllDirectories).Any()
+            : File.Exists(parquetPath);
+
+        if (hasExistingParquet)
+        {
+            task.Value = task.MaxValue;
+            AnsiConsole.MarkupLine($"[yellow]Pulando {tableName}: Parquet já existe[/]");
+            return;
+        }
 
         if (shardedSourceTables.Contains(tableName))
         {
@@ -183,17 +193,19 @@ public class ParquetIngestor : IDisposable
         }
     }
 
-    public async Task ExportAndUploadToStorage(string outputRootDir = "cnpj_shards")
+    public async Task ExportAndUploadToStorage(string outputRootDir, string releaseId)
     {
-        var outputDir = DatasetPathResolver.GetDatasetPath(outputRootDir, _datasetKey);
+        var outputDir = GetDatasetOutputDir(outputRootDir);
+        var releaseOutputDir = GetLocalReleaseOutputDir(outputRootDir, releaseId);
         Directory.CreateDirectory(outputDir);
+        Directory.CreateDirectory(releaseOutputDir);
 
         AnsiConsole.MarkupLine("[cyan]Carregando tabelas auxiliares para geração de shards...[/]");
         await LoadParquetTablesForConnection(_connection, includeShardTables: false);
 
         AnsiConsole.MarkupLine("[cyan]🚀 Iniciando geração e upload de shards...[/]");
 
-        await ExportShardsToStorage(outputDir);
+        await ExportShardsToStorage(releaseOutputDir, releaseId);
 
         AnsiConsole.MarkupLine("[green]🎉 Geração e upload de shards concluídos![/]");
     }
@@ -245,62 +257,76 @@ public class ParquetIngestor : IDisposable
         }
     }
 
-    private async Task ExportShardsToStorage(string outputDir)
+    private async Task ExportShardsToStorage(string outputDir, string releaseId)
     {
         var localShardDir = Path.Combine(outputDir, AppConfig.Current.Shards.RemoteDir);
-        await DirectoryUtils.RecreateDirectoryAsync(localShardDir);
+        Directory.CreateDirectory(localShardDir);
 
-        var prefixesToProcess = GetExistingShardPrefixesFromFilesystem();
+        var allPrefixes = GetExistingShardPrefixesFromFilesystem();
+        var releaseRemoteDir = BuildReleaseShardRemoteDir(releaseId);
+        var releasePlan = BuildReleasePlan(localShardDir, allPrefixes);
         var emptyCount = 0;
         var batchSize = Math.Max(1, AppConfig.Current.Shards.QueryBatchSize);
-        var prefixBatches = BuildShardPrefixBatches(prefixesToProcess, batchSize);
+        var prefixBatches = BuildShardPrefixBatches(releasePlan.PrefixesToGenerate, batchSize);
         var workerBudget = Math.Max(1, AppConfig.Current.Shards.MaxParallelProcessing);
         var workerCount = Math.Max(1, Math.Min(Math.Max(1, workerBudget / batchSize), prefixBatches.Count));
         var queue = new ConcurrentQueue<List<string>>(prefixBatches);
         var progressLock = new object();
 
+        AnsiConsole.MarkupLine(
+            $"[grey]Plano do release:[/] [cyan]reuso local/upload={releasePlan.PrefixesUploadOnly.Count}[/], [cyan]gerar={releasePlan.PrefixesToGenerate.Count}[/]");
+
         await AnsiConsole.Progress()
             .StartAsync(async ctx =>
             {
-                var generationTask = ctx.AddTask("[green]Gerando shards[/]", maxValue: prefixesToProcess.Count);
+                var generationTask = ctx.AddTask("[green]Gerando shards[/]", maxValue: Math.Max(1, releasePlan.PrefixesToGenerate.Count));
                 var uploadTask = ctx.AddTask("[blue]Enviando shards[/]", maxValue: 100);
                 uploadTask.Value = 0;
                 uploadTask.Description = "[grey]Upload aguardando geração dos shards[/]";
 
-                if (prefixesToProcess.Count == 0)
+                if (releasePlan.PrefixesToGenerate.Count == 0)
                 {
-                    generationTask.StopTask();
-                    return;
+                    generationTask.Value = generationTask.MaxValue;
+                    generationTask.Description = "[grey]Nenhum shard precisou ser regenerado[/]";
+                }
+                else
+                {
+                    var workers = Enumerable.Range(0, workerCount)
+                        .Select(_ => Task.Run(async () =>
+                        {
+                            await using var workerConnection = await CreateConfiguredConnectionAsync();
+                            await LoadParquetTablesForConnection(workerConnection, includeShardTables: false);
+
+                            while (queue.TryDequeue(out var prefixBatch))
+                            {
+                                var batchResults = await ExportPrefixBatchAsync(workerConnection, prefixBatch, localShardDir);
+                                var batchEmptyCount = prefixBatch.Count(prefix => !batchResults.GetValueOrDefault(prefix));
+                                Interlocked.Add(ref emptyCount, batchEmptyCount);
+
+                                lock (progressLock)
+                                {
+                                    generationTask.Description =
+                                        $"[cyan]Lote {prefixBatch.First()}..{prefixBatch.Last()} gerado[/]";
+                                    generationTask.Increment(prefixBatch.Count);
+                                }
+                            }
+                        }))
+                        .ToArray();
+
+                    await Task.WhenAll(workers);
                 }
 
-                var workers = Enumerable.Range(0, workerCount)
-                    .Select(_ => Task.Run(async () =>
-                    {
-                        await using var workerConnection = await CreateConfiguredConnectionAsync();
-                        await LoadParquetTablesForConnection(workerConnection, includeShardTables: false);
-
-                        while (queue.TryDequeue(out var prefixBatch))
-                        {
-                            var batchResults = await ExportPrefixBatchAsync(workerConnection, prefixBatch, localShardDir);
-                            var batchEmptyCount = prefixBatch.Count(prefix => !batchResults.GetValueOrDefault(prefix));
-                            Interlocked.Add(ref emptyCount, batchEmptyCount);
-
-                            lock (progressLock)
-                            {
-                                generationTask.Description =
-                                    $"[cyan]Lote {prefixBatch.First()}..{prefixBatch.Last()} gerado[/]";
-                                generationTask.Increment(prefixBatch.Count);
-                            }
-                        }
-                    }))
-                    .ToArray();
-
-                await Task.WhenAll(workers);
-
-                uploadTask.Description = $"[blue]Enviando diretório {AppConfig.Current.Shards.RemoteDir}[/]";
-                var uploaded = await RcloneClient.UploadFolderAsync(
+                var uploadTargets = BuildUploadTargets(
                     localShardDir,
-                    AppConfig.Current.Shards.RemoteDir,
+                    releasePlan.PrefixesUploadOnly.Concat(releasePlan.PrefixesToGenerate));
+                uploadTask.Description = uploadTargets.Count == 0
+                    ? "[grey]Nenhum shard precisou de upload[/]"
+                    : $"[blue]Enviando diff do release {releaseId}[/]";
+
+                var uploaded = await RcloneClient.UploadSelectedFilesAsync(
+                    localShardDir,
+                    releaseRemoteDir,
+                    uploadTargets,
                     uploadTask);
 
                 if (!uploaded)
@@ -309,9 +335,9 @@ public class ParquetIngestor : IDisposable
                 uploadTask.Value = uploadTask.MaxValue;
             });
 
-        var uploadedCount = prefixesToProcess.Count - emptyCount;
+        var uploadedCount = allPrefixes.Count - emptyCount;
         AnsiConsole.MarkupLine(
-            $"[green]✓ Shards processados[/] [grey](enviados: {uploadedCount}, vazios: {emptyCount}, workers: {workerCount}, batch: {batchSize})[/]");
+            $"[green]✓ Shards processados[/] [grey](total: {allPrefixes.Count}, reuso local/upload: {releasePlan.PrefixesUploadOnly.Count}, regenerados: {releasePlan.PrefixesToGenerate.Count}, vazios: {emptyCount}, workers: {workerCount}, batch: {batchSize})[/]");
     }
 
     private async Task<bool> ExportSinglePrefixShardAsync(DuckDBConnection connection, string prefixStr, string outputDir)
@@ -327,8 +353,7 @@ public class ParquetIngestor : IDisposable
             connection,
             prefixStr,
             tempDataPath,
-            tempIndexPath,
-            $"{prefixStr}{ShardDataExtension}");
+            tempIndexPath);
 
         if (rowCount == 0)
         {
@@ -371,16 +396,15 @@ public class ParquetIngestor : IDisposable
             prefix => prefix,
             prefix => Path.Combine(outputDir, $"{prefix}{ShardIndexExtension}"),
             StringComparer.Ordinal);
-        var writers = new Dictionary<string, SparseShardWriter>(StringComparer.Ordinal);
+        var writers = new Dictionary<string, BinaryIndexedShardWriter>(StringComparer.Ordinal);
 
         try
         {
             foreach (var prefix in availablePrefixes)
             {
-                var writer = new SparseShardWriter(
-                    prefix,
+                var writer = new BinaryIndexedShardWriter(
                     tempDataFiles[prefix],
-                    AppConfig.Current.Shards.SparseIndexStride);
+                    tempIndexFiles[prefix]);
                 writers[prefix] = writer;
             }
 
@@ -420,9 +444,6 @@ public class ParquetIngestor : IDisposable
                 DeleteIfExists(tempIndexFiles[prefix]);
                 continue;
             }
-
-            var indexDocument = writers[prefix].BuildIndexDocument($"{prefix}{ShardDataExtension}");
-            await WriteJsonFileAsync(tempIndexFiles[prefix], indexDocument);
 
             ReplaceFile(tempDataFiles[prefix], finalDataFiles[prefix]);
             ReplaceFile(tempIndexFiles[prefix], finalIndexFiles[prefix]);
@@ -508,7 +529,7 @@ public class ParquetIngestor : IDisposable
     /// <summary>
     /// Exporta todos os shards diretamente para ZIP sem criar arquivos temporários em disco
     /// </summary>
-    public async Task GenerateAndUploadFinalInfoJsonAsync()
+    public async Task GenerateAndUploadFinalInfoJsonAsync(string releaseId)
     {
         try
         {
@@ -538,9 +559,11 @@ public class ParquetIngestor : IDisposable
                 zip_md5checksum = "",
                 shard_prefix_length = AppConfig.Current.Shards.PrefixLength,
                 shard_count = GetShardCountFromFilesystem(),
-                shard_path_template = $"{AppConfig.Current.Shards.RemoteDir.Trim('/')}/{{prefix}}{ShardDataExtension}",
-                shard_index_path_template = $"{AppConfig.Current.Shards.RemoteDir.Trim('/')}/{{prefix}}{ShardIndexExtension}",
-                shard_format = "ndjson+sparse-index",
+                storage_release_id = releaseId,
+                shard_path_template = $"{BuildReleaseShardRemoteDir(releaseId)}/{{prefix}}{ShardDataExtension}",
+                shard_index_path_template = $"files/{AppConfig.Current.Shards.RemoteDir.Trim('/')}/{{prefix}}{ShardIndexExtension}",
+                shard_index_distribution = "worker-assets",
+                shard_format = "ndjson+binary-index",
                 zip_layout = "disabled",
                 cnpj_type = "string"
             };
@@ -551,7 +574,7 @@ public class ParquetIngestor : IDisposable
                 WriteIndented = false
             });
 
-            var outputDir = DatasetPathResolver.GetDatasetPath(AppConfig.Current.Paths.OutputDir, _datasetKey);
+            var outputDir = GetLocalReleaseOutputDir(AppConfig.Current.Paths.OutputDir, releaseId);
             Directory.CreateDirectory(outputDir);
             var localInfoPath = Path.Combine(outputDir, "info.json");
             await File.WriteAllTextAsync(localInfoPath, json, Encoding.UTF8);
@@ -577,8 +600,7 @@ public class ParquetIngestor : IDisposable
         DuckDBConnection connection,
         string prefixStr,
         string outputPath,
-        string indexPath,
-        string finalDataFileName)
+        string indexPath)
     {
         var query = BuildJsonQueryForPrefix(prefixStr, includeCnpjColumn: true, jsonAlias: "json_data");
 
@@ -589,7 +611,7 @@ public class ParquetIngestor : IDisposable
         cmd.CommandText = query;
 
         await using var reader = await cmd.ExecuteReaderAsync();
-        using var writer = new SparseShardWriter(prefixStr, outputPath, AppConfig.Current.Shards.SparseIndexStride);
+        using var writer = new BinaryIndexedShardWriter(outputPath, indexPath);
 
         while (await reader.ReadAsync())
         {
@@ -600,8 +622,6 @@ public class ParquetIngestor : IDisposable
 
         if (writer.RecordCount == 0)
             return 0;
-
-        await WriteJsonFileAsync(indexPath, writer.BuildIndexDocument(finalDataFileName));
         return writer.RecordCount;
     }
 
@@ -634,16 +654,59 @@ public class ParquetIngestor : IDisposable
         return value.Replace("'", "''");
     }
 
-    private static async Task WriteJsonFileAsync<T>(string path, T payload)
+    private static string BuildReleaseShardRemoteDir(string releaseId)
     {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        await JsonSerializer.SerializeAsync(stream, payload, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-            WriteIndented = false
-        });
-        await stream.FlushAsync();
+        return $"shards/releases/{releaseId.Trim('/')}";
     }
+
+    private static ReleasePlan BuildReleasePlan(
+        string localShardDir,
+        IReadOnlyList<string> allPrefixes)
+    {
+        var prefixesUploadOnly = new List<string>();
+        var prefixesToGenerate = new List<string>();
+
+        foreach (var prefix in allPrefixes)
+        {
+            if (File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardDataExtension}"))
+                && File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardIndexExtension}")))
+            {
+                prefixesUploadOnly.Add(prefix);
+            }
+            else
+            {
+                prefixesToGenerate.Add(prefix);
+            }
+        }
+
+        return new ReleasePlan(
+            prefixesUploadOnly,
+            prefixesToGenerate);
+    }
+
+    private static IReadOnlyList<string> BuildUploadTargets(
+        string localShardDir,
+        IEnumerable<string> prefixes) =>
+        prefixes
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(prefix => prefix, StringComparer.Ordinal)
+            .Select(prefix => $"{prefix}{ShardDataExtension}")
+            .Where(path => File.Exists(Path.Combine(localShardDir, path)))
+            .ToArray();
+
+    private string GetDatasetOutputDir(string outputRootDir)
+    {
+        return DatasetPathResolver.GetDatasetPath(outputRootDir, _datasetKey);
+    }
+
+    private string GetLocalReleaseOutputDir(string outputRootDir, string releaseId)
+    {
+        return Path.Combine(GetDatasetOutputDir(outputRootDir), "releases", releaseId.Trim('/'));
+    }
+
+    private sealed record ReleasePlan(
+        IReadOnlyList<string> PrefixesUploadOnly,
+        IReadOnlyList<string> PrefixesToGenerate);
 
     private static void ReplaceFile(string sourcePath, string destinationPath)
     {
