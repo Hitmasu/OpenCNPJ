@@ -7,8 +7,9 @@
   },
   "Rclone": {
     "RemoteBase": "Opencnpj:opencnpj/files",
-    "Transfers": 100,
-    "MaxConcurrentUploads": 4,
+    "Transfers": 4,
+    "MaxConcurrentUploads": 1,
+    "BufferSize": "16M",
     "UploadVerificationRetries": 3,
     "UploadVerificationDelaySeconds": 15
   },

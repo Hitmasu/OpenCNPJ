@@ -23,6 +23,7 @@ public class AppConfig
         public string RemoteBase { get; set; } = string.Empty;
         public int Transfers { get; set; } = 0;
         public int MaxConcurrentUploads { get; set; } = 0;
+        public string BufferSize { get; set; } = "16M";
         public int UploadVerificationRetries { get; set; } = 3;
         public int UploadVerificationDelaySeconds { get; set; } = 15;
     }

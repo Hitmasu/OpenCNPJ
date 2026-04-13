@@ -264,7 +264,7 @@ public class ParquetIngestor : IDisposable
 
         var allPrefixes = GetExistingShardPrefixesFromFilesystem();
         var releaseRemoteDir = BuildReleaseShardRemoteDir(releaseId);
-        var releasePlan = await BuildReleasePlanAsync(localShardDir, releaseRemoteDir, allPrefixes);
+        var releasePlan = BuildReleasePlan(localShardDir, allPrefixes);
         var emptyCount = 0;
         var batchSize = Math.Max(1, AppConfig.Current.Shards.QueryBatchSize);
         var prefixBatches = BuildShardPrefixBatches(releasePlan.PrefixesToGenerate, batchSize);
@@ -274,7 +274,7 @@ public class ParquetIngestor : IDisposable
         var progressLock = new object();
 
         AnsiConsole.MarkupLine(
-            $"[grey]Plano do release:[/] [cyan]sincronizados={releasePlan.SyncedPrefixes.Count}[/], [cyan]reuso local/upload={releasePlan.PrefixesUploadOnly.Count}[/], [cyan]gerar={releasePlan.PrefixesToGenerate.Count}[/]");
+            $"[grey]Plano do release:[/] [cyan]reuso local/upload={releasePlan.PrefixesUploadOnly.Count}[/], [cyan]gerar={releasePlan.PrefixesToGenerate.Count}[/]");
 
         await AnsiConsole.Progress()
             .StartAsync(async ctx =>
@@ -318,8 +318,7 @@ public class ParquetIngestor : IDisposable
 
                 var uploadTargets = BuildUploadTargets(
                     localShardDir,
-                    releasePlan.PrefixesUploadOnly.Concat(releasePlan.PrefixesToGenerate),
-                    releasePlan.RemoteHashes);
+                    releasePlan.PrefixesUploadOnly.Concat(releasePlan.PrefixesToGenerate));
                 uploadTask.Description = uploadTargets.Count == 0
                     ? "[grey]Nenhum shard precisou de upload[/]"
                     : $"[blue]Enviando diff do release {releaseId}[/]";
@@ -338,7 +337,7 @@ public class ParquetIngestor : IDisposable
 
         var uploadedCount = allPrefixes.Count - emptyCount;
         AnsiConsole.MarkupLine(
-            $"[green]✓ Shards processados[/] [grey](total: {allPrefixes.Count}, sincronizados: {releasePlan.SyncedPrefixes.Count}, reuso local/upload: {releasePlan.PrefixesUploadOnly.Count}, regenerados: {releasePlan.PrefixesToGenerate.Count}, vazios: {emptyCount}, workers: {workerCount}, batch: {batchSize})[/]");
+            $"[green]✓ Shards processados[/] [grey](total: {allPrefixes.Count}, reuso local/upload: {releasePlan.PrefixesUploadOnly.Count}, regenerados: {releasePlan.PrefixesToGenerate.Count}, vazios: {emptyCount}, workers: {workerCount}, batch: {batchSize})[/]");
     }
 
     private async Task<bool> ExportSinglePrefixShardAsync(DuckDBConnection connection, string prefixStr, string outputDir)
@@ -660,67 +659,40 @@ public class ParquetIngestor : IDisposable
         return $"shards/releases/{releaseId.Trim('/')}";
     }
 
-    private async Task<ReleasePlan> BuildReleasePlanAsync(
+    private static ReleasePlan BuildReleasePlan(
         string localShardDir,
-        string releaseRemoteDir,
         IReadOnlyList<string> allPrefixes)
     {
-        var localNdjsonFiles = allPrefixes
-            .Where(prefix => File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardDataExtension}"))
-                             && File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardIndexExtension}")))
-            .Select(prefix => $"{prefix}{ShardDataExtension}")
-            .ToArray();
-
-        var localHashes = RcloneClient.CalculateLocalChecksums(localShardDir, localNdjsonFiles);
-        var remoteHashes = await RcloneClient.ListRemoteChecksumsAsync(releaseRemoteDir, $"*{ShardDataExtension}");
-
-        var syncedPrefixes = new List<string>();
         var prefixesUploadOnly = new List<string>();
         var prefixesToGenerate = new List<string>();
 
         foreach (var prefix in allPrefixes)
         {
-            var shardFile = $"{prefix}{ShardDataExtension}";
-            var hasLocalData = localHashes.TryGetValue(shardFile, out var localHash);
-
-            if (!hasLocalData)
+            if (File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardDataExtension}"))
+                && File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardIndexExtension}")))
+            {
+                prefixesUploadOnly.Add(prefix);
+            }
+            else
             {
                 prefixesToGenerate.Add(prefix);
-                continue;
             }
-
-            if (remoteHashes.TryGetValue(shardFile, out var remoteHash)
-                && string.Equals(remoteHash, localHash, StringComparison.OrdinalIgnoreCase))
-            {
-                syncedPrefixes.Add(prefix);
-                continue;
-            }
-
-            prefixesUploadOnly.Add(prefix);
         }
 
         return new ReleasePlan(
-            syncedPrefixes,
             prefixesUploadOnly,
-            prefixesToGenerate,
-            remoteHashes);
+            prefixesToGenerate);
     }
 
     private static IReadOnlyList<string> BuildUploadTargets(
         string localShardDir,
-        IEnumerable<string> prefixes,
-        IReadOnlyDictionary<string, string> remoteHashes)
-    {
-        var candidateFiles = prefixes
+        IEnumerable<string> prefixes) =>
+        prefixes
             .Distinct(StringComparer.Ordinal)
             .OrderBy(prefix => prefix, StringComparer.Ordinal)
             .Select(prefix => $"{prefix}{ShardDataExtension}")
             .Where(path => File.Exists(Path.Combine(localShardDir, path)))
             .ToArray();
-
-        var localHashes = RcloneClient.CalculateLocalChecksums(localShardDir, candidateFiles);
-        return RcloneClient.BuildUploadPlan(localHashes, remoteHashes);
-    }
 
     private string GetDatasetOutputDir(string outputRootDir)
     {
@@ -733,10 +705,8 @@ public class ParquetIngestor : IDisposable
     }
 
     private sealed record ReleasePlan(
-        IReadOnlyList<string> SyncedPrefixes,
         IReadOnlyList<string> PrefixesUploadOnly,
-        IReadOnlyList<string> PrefixesToGenerate,
-        IReadOnlyDictionary<string, string> RemoteHashes);
+        IReadOnlyList<string> PrefixesToGenerate);
 
     private static void ReplaceFile(string sourcePath, string destinationPath)
     {

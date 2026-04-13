@@ -180,6 +180,36 @@ cleanup_worker_shard_assets() {
   rm -rf "${WORKER_ASSETS_SHARDS_DIR}"
 }
 
+cleanup_dataset_artifacts() {
+  local dataset_key="$1"
+  if [[ ! "$dataset_key" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
+    echo "Dataset inválido para cleanup: ${dataset_key}" >&2
+    exit 1
+  fi
+
+  local path_names=("DownloadDir" "DataDir" "ParquetDir" "OutputDir")
+  local path_name
+  for path_name in "${path_names[@]}"; do
+    local configured_path
+    configured_path="$(read_config_value "Paths.${path_name}")"
+    local dataset_path
+    dataset_path="$(node -e '
+      const path = require("path");
+      process.stdout.write(path.resolve(process.argv[1], process.argv[2], process.argv[3]));
+    ' "$ETL_DIR" "$configured_path" "$dataset_key")"
+
+    rm -rf "$dataset_path"
+  done
+
+  local duckdb_in_memory
+  duckdb_in_memory="$(read_config_value "DuckDb.UseInMemory" 2>/dev/null || printf 'false')"
+  if [[ "$duckdb_in_memory" != "true" ]]; then
+    rm -f "${ETL_DIR}/cnpj.duckdb"
+  fi
+
+  rm -rf "${ETL_DIR}/hash_cache" "${ETL_DIR}/temp"
+}
+
 validate_endpoint() {
   local url="$1"
   local expected_release="$2"
@@ -230,7 +260,7 @@ deploy_worker() {
   fi
 
   local parsed_url
-  parsed_url="$(printf '%s\n' "$deploy_output" | rg -o 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n 1 || true)"
+  parsed_url="$(printf '%s\n' "$deploy_output" | grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' | tail -n 1 || true)"
   if [[ -z "$parsed_url" ]]; then
     echo "Não foi possível identificar a URL publicada pelo wrangler deploy. Informe --base-url." >&2
     exit 1
@@ -279,9 +309,6 @@ PIPELINE_ARGS=(pipeline --release-id "$RELEASE_ID")
 if [[ -n "$MONTH" ]]; then
   PIPELINE_ARGS+=(--month "$MONTH")
 fi
-if [[ "$CLEANUP_ON_SUCCESS" == "true" ]]; then
-  PIPELINE_ARGS+=(--cleanup-on-success)
-fi
 
 log "Executando ETL"
 pushd "$ETL_DIR" >/dev/null
@@ -328,6 +355,11 @@ validate_endpoint "${DEPLOY_URL%/}/${MASKED_VALIDATE_CNPJ}" "$RELEASE_ID"
 
 if [[ -n "$OLD_RELEASE_ID" && "$OLD_RELEASE_ID" != "$RELEASE_ID" ]]; then
   delete_old_release "$OLD_RELEASE_ID"
+fi
+
+if [[ "$CLEANUP_ON_SUCCESS" == "true" ]]; then
+  log "Limpando artefatos locais de ${DATASET_KEY}"
+  cleanup_dataset_artifacts "$DATASET_KEY"
 fi
 
 log "Limpando shards staged do frontend"

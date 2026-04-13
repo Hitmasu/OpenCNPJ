@@ -27,28 +27,6 @@ public class RcloneClientTests
     }
 
     [TestMethod]
-    public void BuildUploadPlan_ReturnsOnlyMissingOrChangedFiles()
-    {
-        var local = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["001.ndjson"] = "aaa",
-            ["002.ndjson"] = "bbb",
-            ["003.ndjson"] = "ccc"
-        };
-        var remote = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["001.ndjson"] = "aaa",
-            ["002.ndjson"] = "zzz"
-        };
-
-        var plan = RcloneClient.BuildUploadPlanForTest(local, remote);
-
-        CollectionAssert.AreEqual(
-            new[] { "002.ndjson", "003.ndjson" },
-            plan.ToArray());
-    }
-
-    [TestMethod]
     public void BuildRemoteMd5SumArguments_DoesNotUse_FilesOnlyFlag()
     {
         var command = RcloneClient.BuildRemoteMd5SumArgumentsForTest(
@@ -58,5 +36,20 @@ public class RcloneClientTests
         StringAssert.StartsWith(command, "md5sum ");
         Assert.IsFalse(command.Contains("--files-only", StringComparison.Ordinal));
         Assert.IsFalse(command.Contains("--recursive", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void NormalizeBufferSize_UsesSafeDefault_WhenMissing()
+    {
+        Assert.AreEqual("16M", RcloneClient.NormalizeBufferSizeForTest(null));
+        Assert.AreEqual("16M", RcloneClient.NormalizeBufferSizeForTest(""));
+    }
+
+    [TestMethod]
+    public void BuildFilesFromArgument_UsesRawMode()
+    {
+        var result = RcloneClient.BuildFilesFromArgumentForTest("/tmp/files.txt");
+
+        Assert.AreEqual("--files-from-raw \"/tmp/files.txt\" ", result);
     }
 }

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using CNPJExporter.Configuration;
 using Spectre.Console;
@@ -16,6 +15,7 @@ public static class RcloneClient
         (Environment.GetEnvironmentVariable("RCLONE_REMOTE") ?? AppConfig.Current.Rclone.RemoteBase).TrimEnd('/');
 
     private static int Transfers => Math.Max(1, AppConfig.Current.Rclone.Transfers);
+    private static string BufferSize => NormalizeBufferSize(AppConfig.Current.Rclone.BufferSize);
     private static int UploadVerificationRetries => Math.Max(1, AppConfig.Current.Rclone.UploadVerificationRetries);
     private static TimeSpan UploadVerificationDelay => TimeSpan.FromSeconds(Math.Max(1, AppConfig.Current.Rclone.UploadVerificationDelaySeconds));
 
@@ -41,7 +41,7 @@ public static class RcloneClient
                               $"--progress --stats=1s --transfers={Transfers} " +
                               $"--checksum --fast-list=false " +
                               $"--no-update-modtime " +
-                              $"--buffer-size=128M --checkers=1 " +
+                              $"--buffer-size={BufferSize} --checkers=1 " +
                               $"--bwlimit=off " +
                               $"--retries=-1 --retries-sleep=60s --low-level-retries=10";
 
@@ -104,11 +104,11 @@ public static class RcloneClient
                 for (var attempt = 1; attempt <= UploadVerificationRetries; attempt++)
                 {
                     var command = $"copy \"{localFolderPath}\" \"{remote}\" " +
-                                  $"--files-from \"{filesFromPath}\" " +
+                                  BuildFilesFromArgument(filesFromPath) +
                                   $"--progress --stats=1s --transfers={Transfers} " +
                                   $"--checksum --fast-list=false " +
                                   $"--no-update-modtime " +
-                                  $"--buffer-size=128M --checkers=1 " +
+                                  $"--buffer-size={BufferSize} --checkers=1 " +
                                   $"--bwlimit=off " +
                                   $"--retries=-1 --retries-sleep=60s --low-level-retries=10";
 
@@ -130,6 +130,11 @@ public static class RcloneClient
                     if (!string.IsNullOrWhiteSpace(result.Error))
                     {
                         AnsiConsole.MarkupLine($"[red]Erro no upload seletivo (tentativa {attempt}/{UploadVerificationRetries}): {result.Error.EscapeMarkup()}[/]");
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"[yellow]Upload seletivo incompleto (tentativa {attempt}/{UploadVerificationRetries}): exit={result.ExitCode}, pendentes={remaining}[/]");
                     }
 
                     if (attempt < UploadVerificationRetries)
@@ -171,52 +176,25 @@ public static class RcloneClient
         return ParseMd5SumOutput(result.Output);
     }
 
-    public static Dictionary<string, string> CalculateLocalChecksums(
-        string localFolderPath,
-        IEnumerable<string> relativeFiles)
-    {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-
-        foreach (var relativePath in relativeFiles.OrderBy(path => path, StringComparer.Ordinal))
-        {
-            var fullPath = Path.Combine(localFolderPath, relativePath);
-            if (!File.Exists(fullPath))
-                continue;
-
-            using var stream = File.OpenRead(fullPath);
-            var hash = MD5.HashData(stream);
-            result[NormalizeRelativePath(relativePath)] = Convert.ToHexString(hash).ToLowerInvariant();
-        }
-
-        return result;
-    }
-
-    public static IReadOnlyList<string> BuildUploadPlan(
-        IReadOnlyDictionary<string, string> localHashes,
-        IReadOnlyDictionary<string, string> remoteHashes)
-    {
-        return localHashes
-            .Where(kvp => !remoteHashes.TryGetValue(kvp.Key, out var remoteHash)
-                          || !string.Equals(remoteHash, kvp.Value, StringComparison.OrdinalIgnoreCase))
-            .Select(kvp => kvp.Key)
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToArray();
-    }
-
     internal static string BuildFilterArgumentsForTest(IEnumerable<string> includePatterns) => BuildFilterArguments(includePatterns);
 
     internal static bool IsUploadCompleteForTest(int localFileCount, int remoteFileCount) =>
         IsUploadComplete(localFileCount, remoteFileCount);
 
-    internal static IReadOnlyList<string> BuildUploadPlanForTest(
-        IReadOnlyDictionary<string, string> localHashes,
-        IReadOnlyDictionary<string, string> remoteHashes) =>
-        BuildUploadPlan(localHashes, remoteHashes);
-
     internal static string BuildRemoteMd5SumArgumentsForTest(
         string remotePath,
         IEnumerable<string> includePatterns) =>
         BuildRemoteMd5SumArguments(remotePath, includePatterns);
+
+    internal static string NormalizeBufferSizeForTest(string? bufferSize) => NormalizeBufferSize(bufferSize);
+
+    internal static string BuildFilesFromArgumentForTest(string filesFromPath) => BuildFilesFromArgument(filesFromPath);
+
+    private static string NormalizeBufferSize(string? bufferSize) =>
+        string.IsNullOrWhiteSpace(bufferSize) ? "16M" : bufferSize.Trim();
+
+    private static string BuildFilesFromArgument(string filesFromPath) =>
+        $"--files-from-raw \"{filesFromPath}\" ";
 
     private static string BuildFilterArguments(IEnumerable<string> includePatterns)
     {
