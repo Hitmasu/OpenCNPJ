@@ -14,7 +14,7 @@ export const HOT_INDEX_CACHE_MAX_ENTRIES = 256;
 export const HOT_CHUNK_CACHE_TTL_MS = 10 * 60 * 1000;
 export const HOT_CHUNK_CACHE_MAX_ENTRIES = 32;
 export const HOT_CHUNK_CACHE_MAX_BYTES = 8 * 1024 * 1024;
-export const HOT_RUNTIME_INFO_TTL_MS = 30 * 60 * 1000;
+export const HOT_RUNTIME_INFO_TTL_MS = 60 * 1000;
 export const SHARD_PREFIX_LENGTH = 3;
 export const CNPJ_LENGTH = 14;
 export const INDEX_MAGIC = "OCI1";
@@ -25,4 +25,3 @@ export const INDEX_LENGTH_OFFSET = CNPJ_LENGTH + 8;
 export const R2_PUBLIC_ROOT = "files";
 export const CNPJ_MASK_CHARACTERS = /[./-]/g;
 export const ALPHANUMERIC_CNPJ_PATTERN = /^[A-Z0-9]{12}\d{2}$/;
-

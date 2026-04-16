@@ -1,4 +1,4 @@
-namespace CNPJExporter.Processors;
+namespace CNPJExporter.Processors.Models;
 
 internal sealed class SparseShardIndexDocument
 {

@@ -55,6 +55,23 @@
           <li>Com pontos e barra (sem hífen): <code>00.000.000/000000</code></li>
         </ul>
 
+        <h3>Filtro de datasets</h3>
+        <p>
+          Use <code>datasets</code> para escolher quais bases devem entrar na resposta. Sem filtro, a API retorna todas as bases publicadas para o CNPJ.
+        </p>
+        <ul>
+          <li><code>receita</code> dados cadastrais da Receita Federal.</li>
+          <li><code>cno</code> obras do Cadastro Nacional de Obras vinculadas ao CNPJ.</li>
+        </ul>
+        <div class="alert info" role="note" aria-label="Use filtro de datasets">
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+            <path d="M11 7h2v2h-2V7zm0 4h2v6h-2v-6zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+          </svg>
+          <div>
+            Para evitar respostas muito longas e melhorar a performance, informe sempre o menor conjunto de datasets necessário para a sua consulta.
+          </div>
+        </div>
+
         <h3>Consulta rápida</h3>
         <form id="search-form" class="search" novalidate>
           <div class="field">
@@ -75,7 +92,16 @@ curl -s https://api.opencnpj.org/00000000000000 | jq
 curl -s "https://api.opencnpj.org/00.000.000/0000-00" | jq
 
 # com pontos e barra (sem hífen)
-curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
+curl -s "https://api.opencnpj.org/00.000.000/000000" | jq
+
+# apenas dados da Receita Federal
+curl -s "https://api.opencnpj.org/00000000000000?datasets=receita" | jq
+
+# apenas CNO
+curl -s "https://api.opencnpj.org/00000000000000?datasets=cno" | jq
+
+# Receita Federal + CNO
+curl -s "https://api.opencnpj.org/00000000000000?datasets=receita,cno" | jq</pre>
 
         <h3>Resposta</h3>
         <p><strong>Content-Type:</strong> <code>application/json</code></p>
@@ -162,8 +188,25 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
       </section>
       <section id="dados">
         <h2>Dados</h2>
-        <p>Todos os dados são disponibilizados publicamente pela Receita Federal. A base é atualizada mensalmente, conforme a publicação mensal dos dados pela Receita Federal.</p>
-        <p class="api-meta"><strong>Total de CNPJs cadastrados na base:</strong> <span id="info-total"></span> <br/> <strong>Última atualização da base:</strong> <span id="info-updated"></span></p>
+        <p>O OpenCNPJ publica múltiplas bases públicas em uma única API por CNPJ. Cada base tem atualização própria e pode ser solicitada separadamente pelo parâmetro <code>datasets</code>.</p>
+        <p class="api-meta"><strong>Total de CNPJs cadastrados na Receita Federal:</strong> <span id="info-total"></span> <br/> <strong>Última atualização geral:</strong> <span id="info-updated"></span></p>
+
+        <h3>Bases disponíveis na API</h3>
+        <p id="datasets-status" class="hint" aria-live="polite">Carregando bases publicadas…</p>
+        <div class="table-scroll">
+          <table class="lib-table dataset-table" aria-label="Bases disponíveis na API">
+            <thead>
+              <tr>
+                <th>Base</th>
+                <th>Última atualização</th>
+                <th>Frequência de atualização</th>
+                <th>Registros</th>
+                <th>Filtro</th>
+              </tr>
+            </thead>
+            <tbody id="datasets-body"></tbody>
+          </table>
+        </div>
 
         <h3>Download completo (ZIP)</h3>
         <div class="download-block">
@@ -189,14 +232,14 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
               <path d="M11 7h2v2h-2V7zm0 4h2v6h-2v-6zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
             </svg>
             <div>
-              Quer automatizar o fluxo de atualização? Consulte <a href="https://api.opencnpj.org/info" target="_blank" rel="noopener">https://api.opencnpj.org/info</a> para obter a data mais recente, a URL do ZIP e o MD5 para verificação.
+              Quer automatizar o fluxo de atualização? Consulte <a href="https://api.opencnpj.org/info" target="_blank" rel="noopener">https://api.opencnpj.org/info</a> para obter as datas mais recentes das bases, a URL do ZIP e o MD5 para verificação.
             </div>
           </div>
         </div>
 
         <h3>Dataset público no BigQuery</h3>
         <div class="download-block">
-          <p>Todos os dados disponibilizados pela API estão replicados em um dataset do <strong>Google BigQuery</strong>. Priorize essa opção para consultas analíticas, validação em massa e enriquecimento de leads diretamente na nuvem, sem precisar baixar o ZIP.</p>
+          <p>A base cadastral da Receita Federal também está replicada em um dataset do <strong>Google BigQuery</strong>. Priorize essa opção para consultas analíticas, validação em massa e enriquecimento de leads diretamente na nuvem, sem precisar baixar o ZIP.</p>
           <div class="actions">
             <a class="btn" href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">Abrir no BigQuery</a>
           </div>
@@ -308,14 +351,14 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
           <details>
             <summary>Os dados são consultados/atualizados em tempo real?</summary>
             <div class="answer">
-              <p>Não. A base é derivada dos dados públicos da Receita Federal e é atualizada <strong>mensalmente</strong>, de acordo com a publicação oficial.</p>
+              <p>Não. As bases são derivadas de fontes públicas e publicadas em ciclos. Consulte a tabela de bases na seção <em>Dados</em> acima para ver as últimas atualizações; os mesmos dados ficam disponíveis em <code>/info</code>.</p>
             </div>
           </details>
 
           <details>
-            <summary>Quanto tempo após a publicação da Receita Federal vocês atualizam a base?</summary>
+            <summary>Quanto tempo após a publicação das fontes vocês atualizam as bases?</summary>
             <div class="answer">
-              <p>Em média, até <strong>2 dias</strong> após a publicação mensal da Receita Federal.</p>
+              <p>Para a Receita Federal, em média até <strong>2 dias</strong> após a publicação mensal. Para módulos adicionais, consulte a seção <em>Dados</em>, que mostra a última atualização publicada em <code>/info</code>.</p>
             </div>
           </details>
 
@@ -323,7 +366,7 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
             <summary>Posso consultar massivamente os dados?</summary>
             <div class="answer">
               <p>A API é pública e existe para o bem de todos. Para evitar que um mau uso prejudique outros usuários, <strong>não toleramos mais grandes volumes de consultas massivas</strong> (ex.: validação de bases inteiras sem intervalos).</p>
-              <p>Sobre limites: aceitamos <strong>picos de até 50 requisições/segundo por IP</strong>. Porém, para <strong>validação de bases</strong> ou consultas analíticas em larga escala, utilize o arquivo <strong>.zip</strong> disponível na seção <em>Dados</em> ou acesse <a href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">nosso dataset público no BigQuery</a>, que replica integralmente os dados da API.</p>
+              <p>Sobre limites: aceitamos <strong>picos de até 50 requisições/segundo por IP</strong>. Porém, para <strong>validação de bases</strong> ou consultas analíticas em larga escala, utilize o arquivo <strong>.zip</strong> disponível na seção <em>Dados</em> ou acesse <a href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">nosso dataset público no BigQuery</a> para trabalhar com a base cadastral da Receita Federal.</p>
               <p>Caso identifiquemos validação de bases inteiras sem pausas, aplicaremos <strong>dois bloqueios temporários</strong>; se continuar, aplicaremos um <strong>bloqueio permanente</strong>. Contamos com o bom senso: <strong>validar 10 mil CNPJs</strong> é muito diferente de <strong>validar 1 milhão</strong>.</p>
               <p>Se precisar de um fluxo automatizado para <strong>consultas em batch</strong>, utilize preferencialmente o dataset no BigQuery ou o download do ZIP em vez de chamar a API individualmente.</p>
             </div>
@@ -353,7 +396,7 @@ curl -s "https://api.opencnpj.org/00.000.000/000000" | jq</pre>
           <details>
             <summary>Consultei um CNPJ e não foi encontrado, mas ele existe. Por quê?</summary>
             <div class="answer">
-              <p>Se o CNPJ foi aberto recentemente, ele pode ainda não constar na nossa base, pois a atualização é mensal. Caso já tenha passado um mês e o CNPJ conste nos dados da Receita Federal, entre em contato conosco.</p>
+              <p>Se o CNPJ foi aberto recentemente, ele pode ainda não constar na Receita Federal publicada pelo OpenCNPJ. Se você usou filtro de datasets, verifique também se a base escolhida possui registros para esse CNPJ.</p>
             </div>
           </details>
         </div>

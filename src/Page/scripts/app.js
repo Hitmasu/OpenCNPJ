@@ -19,6 +19,8 @@
   const $zipSize = document.getElementById('zip-size');
   const $zipUrl = document.getElementById('zip-url');
   const $zipMd5 = document.getElementById('zip-md5');
+  const $datasetsStatus = document.getElementById('datasets-status');
+  const $datasetsBody = document.getElementById('datasets-body');
 
   let currentDigits = '';
 
@@ -30,6 +32,19 @@
   const ASCII_ZERO = '0'.charCodeAt(0);
   const CHECK_DIGIT_WEIGHT = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
   const ZEROED_CNPJ = '00000000000000';
+  const DATASET_ORDER = ['receita', 'cno'];
+  const DATASET_DETAILS = {
+    receita: {
+      name: 'Receita Federal',
+      description: 'Cadastro base de empresas: estabelecimento, razão social, CNAE, endereço, situação cadastral, Simples/MEI e quadro societário.',
+      frequency: 'Mensal',
+    },
+    cno: {
+      name: 'Cadastro Nacional de Obras',
+      description: 'Obras vinculadas ao CNPJ responsável, incluindo dados de obra, situação, localização, área e vínculos conhecidos.',
+      frequency: 'Diária',
+    },
+  };
 
   function removeMask(cnpj) {
     return (cnpj || '').replace(REGEX_MASK_CHARACTERS, '').toUpperCase();
@@ -123,7 +138,75 @@
     return `${value.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ${units[i]}`;
   }
 
+  function formatDate(value) {
+    if (!value) return '—';
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return String(value);
+    return dt.toLocaleString('pt-BR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  function formatCount(value) {
+    return typeof value === 'number' ? value.toLocaleString('pt-BR') : '—';
+  }
+
   function clear(el){ if (!el) return; while (el.firstChild) el.removeChild(el.firstChild); }
+
+  function renderDatasets(info) {
+    if (!$datasetsBody) return;
+
+    clear($datasetsBody);
+    const datasets = info?.datasets && typeof info.datasets === 'object' ? info.datasets : {};
+    const entries = DATASET_ORDER
+      .filter((key) => Object.prototype.hasOwnProperty.call(datasets, key))
+      .map((key) => [key, datasets[key]]);
+
+    if (entries.length === 0) {
+      if ($datasetsStatus) $datasetsStatus.textContent = 'Nenhuma base publicada foi retornada pelo /info.';
+      return;
+    }
+
+    for (const [key, dataset] of entries) {
+      const row = document.createElement('tr');
+      const nameCell = document.createElement('td');
+      const name = document.createElement('strong');
+      const description = document.createElement('p');
+      const updatedCell = document.createElement('td');
+      const frequencyCell = document.createElement('td');
+      const countCell = document.createElement('td');
+      const filterCell = document.createElement('td');
+      const filterCode = document.createElement('code');
+
+      name.textContent = DATASET_DETAILS[key].name;
+      description.className = 'dataset-desc';
+      description.textContent = DATASET_DETAILS[key].description;
+      nameCell.appendChild(name);
+      nameCell.appendChild(description);
+      updatedCell.textContent = formatDate(dataset?.updated_at);
+      frequencyCell.textContent = DATASET_DETAILS[key].frequency;
+      countCell.textContent = formatCount(dataset?.record_count);
+      filterCode.textContent = `datasets=${key}`;
+      filterCell.appendChild(filterCode);
+
+      row.appendChild(nameCell);
+      row.appendChild(updatedCell);
+      row.appendChild(frequencyCell);
+      row.appendChild(countCell);
+      row.appendChild(filterCell);
+      $datasetsBody.appendChild(row);
+    }
+
+    if ($datasetsStatus) {
+      $datasetsStatus.textContent = entries.length === 1
+        ? '1 base publicada no /info.'
+        : `${entries.length} bases publicadas no /info.`;
+    }
+  }
 
   function setActiveTab(which){
     if (!$tabBtnVisual || !$tabBtnJson || !$tabPanelVisual || !$tabPanelJson) return;
@@ -220,13 +303,10 @@
         $infoTotal.textContent = info.total.toLocaleString('pt-BR');
       }
       if ($infoUpdated && info.last_updated) {
-        const dt = new Date(info.last_updated);
-        try {
-          $infoUpdated.textContent = dt.toLocaleString('pt-BR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
-        } catch {
-          $infoUpdated.textContent = String(info.last_updated);
-        }
+        $infoUpdated.textContent = formatDate(info.last_updated);
       }
+
+      renderDatasets(info);
 
       // ZIP info
       if (info.zip_url) {
@@ -242,7 +322,9 @@
       if (info.zip_md5checksum && $zipMd5) {
         $zipMd5.textContent = info.zip_md5checksum;
       }
-    } catch {}
+    } catch {
+      if ($datasetsStatus) $datasetsStatus.textContent = 'Não foi possível carregar as bases publicadas no momento.';
+    }
   }
 
   async function doFetch(digits) {

@@ -113,9 +113,10 @@ public static class RcloneClient
                                   $"--retries=-1 --retries-sleep=60s --low-level-retries=10";
 
                     var result = await RunRcloneCommandAsync(command, progressTask);
-                    var remoteHashes = await ListRemoteChecksumsAsync(remoteRelativePath, ["*.ndjson"]);
+                    var remoteHashes = await ListRemoteChecksumsAsync(remoteRelativePath, ["*.ndjson", "*.index.bin"]);
                     var remaining = relativeFiles
-                        .Where(path => path.EndsWith(".ndjson", StringComparison.OrdinalIgnoreCase))
+                        .Where(path => path.EndsWith(".ndjson", StringComparison.OrdinalIgnoreCase)
+                                       || path.EndsWith(".index.bin", StringComparison.OrdinalIgnoreCase))
                         .Count(path => !remoteHashes.ContainsKey(path));
 
                     if (result.ExitCode == 0 && remaining == 0)

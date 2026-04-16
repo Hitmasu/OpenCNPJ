@@ -10,6 +10,7 @@ ETL_CONFIG="${ETL_DIR}/config.json"
 WORKER_ASSETS_DIR="${WORKER_DIR}/assets"
 WORKER_ASSETS_FILES_DIR="${WORKER_ASSETS_DIR}/files"
 WORKER_ASSETS_SHARDS_DIR="${WORKER_ASSETS_FILES_DIR}/shards"
+WORKER_GENERATED_RUNTIME_INFO="${WORKER_DIR}/src/generated-runtime-info.ts"
 DEFAULT_VALIDATE_CNPJ="60701190000104"
 
 MONTH=""
@@ -148,7 +149,25 @@ json_field() {
 
 fetch_json() {
   local url="$1"
-  curl -fsS "$url"
+  local max_attempts="${OPENCNPJ_FETCH_JSON_RETRIES:-6}"
+  local retry_delay_seconds="${OPENCNPJ_FETCH_JSON_RETRY_DELAY_SECONDS:-5}"
+  local attempt=1
+  local curl_exit_code=0
+
+  while true; do
+    if curl -fsS "$url"; then
+      return 0
+    fi
+
+    curl_exit_code=$?
+    if [[ "$attempt" -ge "$max_attempts" ]]; then
+      return "$curl_exit_code"
+    fi
+
+    log "Falha ao buscar ${url} (tentativa ${attempt}/${max_attempts}); tentando novamente em ${retry_delay_seconds}s" >&2
+    sleep "$retry_delay_seconds"
+    attempt=$((attempt + 1))
+  done
 }
 
 mask_cnpj_for_path() {
@@ -166,14 +185,68 @@ copy_worker_assets() {
   local source_root="${ETL_DIR}/cnpj_shards/${dataset_key}/releases/${release_id}"
   local source_shards="${source_root}/shards"
   local source_info="${source_root}/info.json"
+  local module_shards_root="${ETL_DIR}/cnpj_shards/shards/modules"
 
   [[ -f "$source_info" ]] || { echo "info.json não encontrado em ${source_info}" >&2; exit 1; }
-  [[ -d "$source_shards" ]] || { echo "Diretório de shards não encontrado em ${source_shards}" >&2; exit 1; }
 
   rm -rf "${WORKER_ASSETS_DIR}"
   mkdir -p "${WORKER_ASSETS_SHARDS_DIR}"
   cp "$source_info" "${WORKER_ASSETS_FILES_DIR}/info.json"
-  find "$source_shards" -maxdepth 1 -type f -name '*.index.bin' -exec cp {} "${WORKER_ASSETS_SHARDS_DIR}/" \;
+  if [[ -d "$source_shards" ]]; then
+    find "$source_shards" -maxdepth 1 -type f -name '*.index.bin' -exec cp {} "${WORKER_ASSETS_SHARDS_DIR}/" \;
+  fi
+
+  if [[ -d "$module_shards_root" ]]; then
+    while IFS= read -r module_index; do
+      local relative_path
+      local destination
+      relative_path="${module_index#"${ETL_DIR}/cnpj_shards/"}"
+      destination="${WORKER_ASSETS_FILES_DIR}/${relative_path}"
+      mkdir -p "$(dirname "$destination")"
+      cp "$module_index" "$destination"
+    done < <(find "$module_shards_root" -path "*/releases/${release_id}/*.index.bin" -type f)
+  fi
+
+}
+
+generate_worker_runtime_info() {
+  local dataset_key="$1"
+  local release_id="$2"
+  local source_info="${ETL_DIR}/cnpj_shards/${dataset_key}/releases/${release_id}/info.json"
+
+  [[ -f "$source_info" ]] || { echo "info.json não encontrado em ${source_info}" >&2; exit 1; }
+
+  node -e '
+    const fs = require("fs");
+    const source = process.argv[1];
+    const destination = process.argv[2];
+    const payload = JSON.parse(fs.readFileSync(source, "utf8"));
+    const body = `${JSON.stringify(payload, null, 2)} as RuntimeInfo`;
+    fs.writeFileSync(destination, [
+      "import type { RuntimeInfo } from \"./types.ts\";",
+      "",
+      `export const GENERATED_RUNTIME_INFO = ${body};`,
+      "",
+      "let runtimeInfoForTest: RuntimeInfo | null | undefined;",
+      "",
+      "export function getEmbeddedRuntimeInfo(): RuntimeInfo | null {",
+      "  if (runtimeInfoForTest !== undefined) {",
+      "    return runtimeInfoForTest;",
+      "  }",
+      "",
+      "  return GENERATED_RUNTIME_INFO;",
+      "}",
+      "",
+      "export function hasEmbeddedRuntimeInfo(): boolean {",
+      "  return getEmbeddedRuntimeInfo() != null;",
+      "}",
+      "",
+      "export function setEmbeddedRuntimeInfoForTest(value: RuntimeInfo | null | undefined): void {",
+      "  runtimeInfoForTest = value;",
+      "}",
+      "",
+    ].join("\n"));
+  ' "$source_info" "$WORKER_GENERATED_RUNTIME_INFO"
 }
 
 cleanup_worker_shard_assets() {
@@ -187,8 +260,9 @@ cleanup_dataset_artifacts() {
     exit 1
   fi
 
-  local path_names=("DownloadDir" "DataDir" "ParquetDir" "OutputDir")
+  local path_names=("DownloadDir" "DataDir")
   local path_name
+  local data_dir=""
   for path_name in "${path_names[@]}"; do
     local configured_path
     configured_path="$(read_config_value "Paths.${path_name}")"
@@ -199,7 +273,19 @@ cleanup_dataset_artifacts() {
     ' "$ETL_DIR" "$configured_path" "$dataset_key")"
 
     rm -rf "$dataset_path"
+
+    if [[ "$path_name" == "DataDir" ]]; then
+      data_dir="$(node -e '
+        const path = require("path");
+        process.stdout.write(path.resolve(process.argv[1], process.argv[2]));
+      ' "$ETL_DIR" "$configured_path")"
+    fi
   done
+
+  if [[ -n "$data_dir" && -d "${data_dir}/integrations" ]]; then
+    find "${data_dir}/integrations" -mindepth 1 -maxdepth 1 ! -name '_state' -exec rm -rf {} +
+    find "${data_dir}/integrations" -mindepth 1 -maxdepth 1 -type f -delete
+  fi
 
   local duckdb_in_memory
   duckdb_in_memory="$(read_config_value "DuckDb.UseInMemory" 2>/dev/null || printf 'false')"
@@ -207,7 +293,7 @@ cleanup_dataset_artifacts() {
     rm -f "${ETL_DIR}/cnpj.duckdb"
   fi
 
-  rm -rf "${ETL_DIR}/hash_cache" "${ETL_DIR}/temp"
+  rm -rf "${ETL_DIR}/temp"
 }
 
 validate_endpoint() {
@@ -231,8 +317,34 @@ validate_endpoint() {
       }
 
       if (url.endsWith("/info")) {
-        if (payload.storage_release_id !== expectedRelease) {
-          console.error(`storage_release_id inesperado em /info: ${payload.storage_release_id} != ${expectedRelease}`);
+        function collectBaseReleases(info) {
+          const releases = new Set();
+          if (info?.storage_release_id) releases.add(info.storage_release_id);
+          if (info?.default_shard_release_id) releases.add(info.default_shard_release_id);
+          for (const release of Object.values(info?.shard_releases ?? {})) {
+            if (release) releases.add(release);
+          }
+          return releases;
+        }
+
+        function collectModuleReleases(info) {
+          const releases = new Set();
+          for (const moduleInfo of Object.values(info?.module_shards ?? {})) {
+            if (moduleInfo?.storage_release_id) releases.add(moduleInfo.storage_release_id);
+            if (moduleInfo?.default_shard_release_id) releases.add(moduleInfo.default_shard_release_id);
+            for (const release of Object.values(moduleInfo?.shard_releases ?? {})) {
+              if (release) releases.add(release);
+            }
+          }
+          return releases;
+        }
+
+        const releaseMatches =
+          collectBaseReleases(payload).has(expectedRelease) ||
+          collectModuleReleases(payload).has(expectedRelease);
+
+        if (!releaseMatches) {
+          console.error(`release ${expectedRelease} não está referenciado em /info`);
           process.exit(1);
         }
         process.exit(0);
@@ -269,36 +381,87 @@ deploy_worker() {
   printf '%s\n' "$parsed_url"
 }
 
-delete_old_release() {
-  local old_release_id="$1"
-  [[ -n "$old_release_id" ]] || return 0
+delete_old_releases() {
+  local old_info="$1"
+  local new_info="$2"
   [[ "$SKIP_DELETE_OLD" == "true" ]] && return 0
+  [[ -n "$old_info" && -n "$new_info" ]] || return 0
 
   local remote_base
   remote_base="$(read_config_value "Rclone.RemoteBase")"
-  local old_remote="${remote_base%/}/shards/releases/${old_release_id}"
 
-  log "Removendo release antigo ${old_release_id} em ${old_remote}"
-  rclone purge "$old_remote"
+  node -e '
+    const oldInfo = JSON.parse(process.argv[1]);
+    const newInfo = JSON.parse(process.argv[2]);
+
+    function collectBaseReleases(info) {
+      const releases = new Set();
+      if (info?.storage_release_id) releases.add(info.storage_release_id);
+      if (info?.default_shard_release_id) releases.add(info.default_shard_release_id);
+      for (const release of Object.values(info?.shard_releases ?? {})) {
+        if (release) releases.add(release);
+      }
+      return releases;
+    }
+
+    function collectModuleReleases(info) {
+      const releasesByModule = new Map();
+      for (const [key, moduleInfo] of Object.entries(info?.module_shards ?? {})) {
+        const releases = releasesByModule.get(key) ?? new Set();
+        if (moduleInfo?.storage_release_id) releases.add(moduleInfo.storage_release_id);
+        if (moduleInfo?.default_shard_release_id) releases.add(moduleInfo.default_shard_release_id);
+        for (const release of Object.values(moduleInfo?.shard_releases ?? {})) {
+          if (release) releases.add(release);
+        }
+        releasesByModule.set(key, releases);
+      }
+      return releasesByModule;
+    }
+
+    const newBase = collectBaseReleases(newInfo);
+    for (const release of collectBaseReleases(oldInfo)) {
+      if (!newBase.has(release)) console.log(`base\t${release}`);
+    }
+
+    const oldModules = collectModuleReleases(oldInfo);
+    const newModules = collectModuleReleases(newInfo);
+    for (const [key, oldReleases] of oldModules.entries()) {
+      const newReleases = newModules.get(key) ?? new Set();
+      for (const release of oldReleases) {
+        if (!newReleases.has(release)) console.log(`module\t${key}\t${release}`);
+      }
+    }
+  ' "$old_info" "$new_info" | while IFS=$'\t' read -r kind first second; do
+    if [[ "$kind" == "base" && -n "$first" ]]; then
+      local old_remote="${remote_base%/}/shards/releases/${first}"
+      log "Removendo release base antigo ${first} em ${old_remote}"
+      rclone purge "$old_remote"
+    elif [[ "$kind" == "module" && -n "$first" && -n "$second" ]]; then
+      local old_remote="${remote_base%/}/shards/modules/${first}/releases/${second}"
+      log "Removendo release antigo do módulo ${first}/${second} em ${old_remote}"
+      rclone purge "$old_remote"
+    fi
+  done
 }
 
-capture_current_release() {
+capture_current_info() {
   if [[ -z "$BASE_URL" ]]; then
     return 0
   fi
 
-  local current_info
-  if ! current_info="$(fetch_json "${BASE_URL%/}/info" 2>/dev/null)"; then
+  if ! fetch_json "${BASE_URL%/}/info" 2>/dev/null; then
     return 0
   fi
-
-  json_field "$current_info" "storage_release_id" 2>/dev/null || true
 }
 
 if [[ -z "$RELEASE_ID" ]]; then
   RELEASE_ID="$(generate_release_id)"
 fi
-OLD_RELEASE_ID="$(capture_current_release || true)"
+OLD_INFO="$(capture_current_info || true)"
+OLD_RELEASE_ID=""
+if [[ -n "$OLD_INFO" ]]; then
+  OLD_RELEASE_ID="$(json_field "$OLD_INFO" "storage_release_id" 2>/dev/null || true)"
+fi
 
 log "Release id novo: ${RELEASE_ID}"
 if [[ -n "$OLD_RELEASE_ID" ]]; then
@@ -332,6 +495,7 @@ log "Dataset usado: ${DATASET_KEY}"
 
 log "Copiando assets do Worker"
 copy_worker_assets "$DATASET_KEY" "$RELEASE_ID"
+generate_worker_runtime_info "$DATASET_KEY" "$RELEASE_ID"
 
 log "Rodando testes do Worker"
 pushd "$WORKER_DIR" >/dev/null
@@ -353,9 +517,8 @@ validate_endpoint "${DEPLOY_URL%/}/${VALIDATE_CNPJ}" "$RELEASE_ID"
 log "Validando /${MASKED_VALIDATE_CNPJ}"
 validate_endpoint "${DEPLOY_URL%/}/${MASKED_VALIDATE_CNPJ}" "$RELEASE_ID"
 
-if [[ -n "$OLD_RELEASE_ID" && "$OLD_RELEASE_ID" != "$RELEASE_ID" ]]; then
-  delete_old_release "$OLD_RELEASE_ID"
-fi
+NEW_INFO="$(fetch_json "${DEPLOY_URL%/}/info")"
+delete_old_releases "$OLD_INFO" "$NEW_INFO"
 
 if [[ "$CLEANUP_ON_SUCCESS" == "true" ]]; then
   log "Limpando artefatos locais de ${DATASET_KEY}"
