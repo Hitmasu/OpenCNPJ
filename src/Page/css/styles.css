@@ -212,6 +212,10 @@ p, li{color:var(--neutral)}
 .lib-table td:not(:last-child){border-right:1px solid var(--border)}
 .lib-table thead th{color:var(--muted);font-weight:700;font-size:14px;background:rgba(255,255,255,.02)}
 .lib-table tbody td{font-size:15px}
+.dataset-table{min-width:760px}
+.dataset-table td{vertical-align:top}
+.dataset-table code{white-space:nowrap}
+.dataset-desc{margin:4px 0 0;color:var(--muted);font-size:14px;max-width:620px}
 /* Space between table and hint text */
 #bibliotecas .hint{margin-top:12px}
 /* Expand arrow */

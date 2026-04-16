@@ -27,10 +27,18 @@ Projeto aberto para baixar, processar e publicar dados públicos das empresas do
 
 - `downloads/YYYY-MM`: zips baixados da Receita.
 - `extracted_data/YYYY-MM`: arquivos extraídos para o mês.
-- `parquet_data/YYYY-MM`: Parquets gerados para o mês.
+- `parquet_data/YYYY-MM`: Parquets gerados para o mês e Parquets mais recentes das integrações.
 - `cnpj_shards/YYYY-MM/releases/{release_id}/shards`: shards locais `*.ndjson` e `*.index.bin` do release atual.
 
-Os artefatos locais não são apagados automaticamente, exceto quando o pipeline é executado com `--cleanup-on-success`. O pipeline também não usa mais cache de hash por shard.
+Os artefatos locais não são apagados automaticamente, exceto quando o pipeline é executado com `--cleanup-on-success`. Nesse modo, o cleanup remove downloads, CSVs extraídos e temporários, mas preserva Parquets e releases locais para permitir recomposição incremental.
+
+## Integrações
+
+- O ETL possui a interface interna `IDataIntegration` para sub-módulos de dados.
+- Cada integração declara chave, propriedade JSON, frequência de atualização e versão de schema.
+- O estado de hashes por CNPJ de cada integração é publicado via rclone em `files/integrations/state/{module}/hashes.json`.
+- Integrações devem gerar Parquet com 1 linha por CNPJ (`cnpj`, `cnpj_prefix`, `payload_json`, `content_hash`, datas de origem/módulo).
+- O JSON final sempre inclui a chave das integrações habilitadas; quando o CNPJ não tiver dado naquela integração, o valor fica `null`.
 
 ## Execução
 
@@ -45,10 +53,10 @@ Sem `-m`, o pipeline escolhe o mês mais recente publicado no share WebDAV da Re
 ## Publicação
 
 - Os shards no R2 são publicados em releases versionados, por exemplo `files/shards/releases/{release_id}/{prefix}.ndjson`.
-- A API publicada consome os `*.ndjson` do release ativo no R2 e `shards/{prefix}.index.bin` como Static Asset do Worker, onde `prefix` usa os 3 primeiros caracteres do CNPJ normalizado.
+- A API publicada consome os `*.ndjson` e `*.index.bin` do release ativo no R2, onde `prefix` usa os 3 primeiros caracteres do CNPJ normalizado.
 - Cada linha do `*.ndjson` representa um CNPJ e o `*.index.bin` guarda `offset` e `length` exatos para leitura direta no Worker.
 - O contrato de CNPJ já aceita formato alfanumérico: 12 caracteres alfanuméricos + 2 dígitos finais.
-- O arquivo `info.json` continua sendo publicado, agora com metadados do release ativo no storage.
+- O arquivo `info.json` continua sendo publicado, agora com metadados do release ativo, `default_shard_release_id`, `shard_releases` por prefixo alterado e `sources` por origem de dados.
 
 ## Deploy
 

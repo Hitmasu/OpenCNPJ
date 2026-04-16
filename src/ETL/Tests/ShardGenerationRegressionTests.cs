@@ -26,6 +26,7 @@ public sealed class ShardGenerationRegressionTests
     public async Task CsvRead_ShouldContain_60701190000104_InEstabelecimentoSource()
     {
         using var scope = TestEnvironmentScope.Create();
+        RequireCsvFixture();
         await using var connection = new DuckDBConnection("Data Source=:memory:");
         await connection.OpenAsync();
 
@@ -195,6 +196,27 @@ public sealed class ShardGenerationRegressionTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(firstEntryCnpj), "O primeiro CNPJ indexado não deveria ser vazio.");
     }
 
+    [TestMethod]
+    public async Task Shard607_ShouldNotInlineIntegrationPayload()
+    {
+        using var scope = TestEnvironmentScope.Create();
+        await EnsureFreshParquetDataAsync();
+
+        using var ingestor = new ParquetIngestor("2026-03");
+
+        var outputRoot = Path.Combine(scope.TempRoot, "base-shard-output");
+        await ingestor.ExportSingleShardAsync(ItauPrefix, outputRoot);
+
+        var shardDataPath = Path.Combine(outputRoot, "2026-03", AppConfig.Current.Shards.RemoteDir, $"{ItauPrefix}.ndjson");
+        var company = await FindCompanyInShardNdjsonAsync(shardDataPath, SampleShardCnpj);
+
+        Assert.IsNotNull(company, $"O CNPJ {SampleShardCnpj} deveria existir no shard {ItauPrefix}.");
+
+        Assert.IsFalse(
+            company.ContainsKey("cno"),
+            "O shard base deve conter apenas dados da Receita; módulos são montados no Worker.");
+    }
+
     private sealed class TestEnvironmentScope : IDisposable
     {
         private readonly string _originalCurrentDirectory;
@@ -273,6 +295,10 @@ public sealed class ShardGenerationRegressionTests
         await ParquetRefreshLock.WaitAsync();
         try
         {
+            if (HasParquetFixture())
+                return;
+
+            RequireCsvFixture();
             using var ingestor = new ParquetIngestor("2026-03");
             await ingestor.ConvertCsvsToParquet();
         }
@@ -280,6 +306,30 @@ public sealed class ShardGenerationRegressionTests
         {
             ParquetRefreshLock.Release();
         }
+    }
+
+    private static void RequireCsvFixture()
+    {
+        var csvPath = Path.Combine(
+            Environment.CurrentDirectory,
+            "extracted_data",
+            "2026-03",
+            "K3241.K03200Y0.D60314.ESTABELE");
+
+        if (!File.Exists(csvPath))
+            Assert.Inconclusive($"Fixture local ausente: {csvPath}");
+    }
+
+    private static bool HasParquetFixture()
+    {
+        var estabelecimentoDir = Path.Combine(
+            Environment.CurrentDirectory,
+            AppConfig.Current.Paths.ParquetDir,
+            "2026-03",
+            "estabelecimento");
+
+        return Directory.Exists(estabelecimentoDir)
+               && Directory.EnumerateFiles(estabelecimentoDir, "*.parquet", SearchOption.AllDirectories).Any();
     }
 
     private static string EscapeSqlLiteral(string value)
@@ -324,7 +374,7 @@ public sealed class ShardGenerationRegressionTests
             if (json?["cnpj"]?.GetValue<string>() != cnpj)
                 continue;
 
-            return json["data"]?.AsObject();
+            return json;
         }
 
         return null;

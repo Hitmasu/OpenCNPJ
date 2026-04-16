@@ -34,7 +34,7 @@ internal sealed class BinaryIndexedShardWriter : IDisposable
         if (cnpj.Length != CnpjLength)
             throw new ArgumentOutOfRangeException(nameof(cnpj), $"CNPJ deve ter exatamente {CnpjLength} caracteres.");
 
-        var line = $"{{\"cnpj\":\"{cnpj}\",\"data\":{jsonData}}}\n";
+        var line = $"{jsonData}\n";
         var bytes = _utf8NoBom.GetBytes(line);
 
         await _dataStream.WriteAsync(bytes);

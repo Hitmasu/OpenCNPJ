@@ -1,8 +1,11 @@
 import { SHARD_PREFIX_LENGTH } from "./constants.ts";
 import { extractCnpjFromPath, normalizeCnpj } from "./cnpj.ts";
 import { clearHotCaches } from "./cache.ts";
+import { resolveDatasetSelection } from "./datasets.ts";
+import { setEmbeddedRuntimeInfoForTest } from "./generated-runtime-info.ts";
 import { handleCachedJson, corsPreflight, jsonError, jsonOk } from "./http.ts";
-import { getShardPrefix, loadInfo, loadRecordFromShard } from "./storage.ts";
+import { buildRecordCacheKey, getShardPrefix, loadDatasetsFromShard, loadInfo, loadRuntimeInfo } from "./storage.ts";
+import type { RuntimeInfo } from "./types.ts";
 import type { Env } from "./types.ts";
 
 export default {
@@ -34,24 +37,38 @@ export default {
       return jsonError(400, "invalid cnpj");
     }
 
-    return handleCachedJson(`https://cache.opencnpj/cnpj/${cnpj}`, ctx, async () => {
-      try {
-        const prefix = getShardPrefix(cnpj);
-        const record = await loadRecordFromShard(env, env.CNPJ_BUCKET, prefix, cnpj);
+    try {
+      const prefix = getShardPrefix(cnpj);
+      const runtimeInfo = await loadRuntimeInfo(env);
+      const selection = resolveDatasetSelection(url.searchParams, runtimeInfo);
+      if (!selection.ok) {
+        return jsonError(400, selection.error);
+      }
+
+      const cacheKey = buildRecordCacheKey(cnpj, prefix, runtimeInfo, selection.value);
+
+      return await handleCachedJson(cacheKey, ctx, async () => {
+        const record = await loadDatasetsFromShard(
+          env,
+          env.CNPJ_BUCKET,
+          prefix,
+          cnpj,
+          selection.value,
+          runtimeInfo);
         if (record == null) {
           return jsonError(404, "not found");
         }
 
         return jsonOk(record);
-      } catch (error) {
-        console.error("cnpj lookup failed", {
-          cnpj,
-          prefix: cnpj.slice(0, SHARD_PREFIX_LENGTH),
-          error,
-        });
-        return jsonError(502, "invalid shard payload");
-      }
-    });
+      });
+    } catch (error) {
+      console.error("cnpj lookup failed", {
+        cnpj,
+        prefix: cnpj.slice(0, SHARD_PREFIX_LENGTH),
+        error,
+      });
+      return jsonError(502, "invalid shard payload");
+    }
   },
 };
 
@@ -60,5 +77,8 @@ export const __test__ = {
   normalizeCnpj,
   clearHotIndexCache(): void {
     clearHotCaches();
+  },
+  setEmbeddedRuntimeInfoForTest(value: RuntimeInfo | null | undefined): void {
+    setEmbeddedRuntimeInfoForTest(value);
   },
 };

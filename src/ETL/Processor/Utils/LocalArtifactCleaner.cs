@@ -13,15 +13,15 @@ public static class LocalArtifactCleaner
         var datasetDirectories = new[]
         {
             DatasetPathResolver.GetDatasetPath(paths.DownloadDir, datasetKey),
-            DatasetPathResolver.GetDatasetPath(paths.DataDir, datasetKey),
-            DatasetPathResolver.GetDatasetPath(paths.ParquetDir, datasetKey),
-            DatasetPathResolver.GetDatasetPath(paths.OutputDir, datasetKey)
+            DatasetPathResolver.GetDatasetPath(paths.DataDir, datasetKey)
         };
 
         foreach (var directory in datasetDirectories.Distinct(StringComparer.Ordinal))
         {
             await DirectoryUtils.DeleteDirectoryIfExistsAsync(directory);
         }
+
+        await CleanupIntegrationInputArtifactsAsync(paths.DataDir);
 
         if (!AppConfig.Current.DuckDb.UseInMemory)
         {
@@ -30,7 +30,26 @@ public static class LocalArtifactCleaner
                 File.Delete(duckDbPath);
         }
 
-        await DirectoryUtils.DeleteDirectoryIfExistsAsync(Path.GetFullPath("hash_cache"));
         await DirectoryUtils.DeleteDirectoryIfExistsAsync(Path.GetFullPath("temp"));
+    }
+
+    private static async Task CleanupIntegrationInputArtifactsAsync(string dataDir)
+    {
+        var integrationsDir = Path.Combine(dataDir, "integrations");
+        if (!Directory.Exists(integrationsDir))
+            return;
+
+        foreach (var directory in Directory.EnumerateDirectories(integrationsDir))
+        {
+            if (string.Equals(Path.GetFileName(directory), "_state", StringComparison.Ordinal))
+                continue;
+
+            await DirectoryUtils.DeleteDirectoryIfExistsAsync(directory);
+        }
+
+        foreach (var file in Directory.EnumerateFiles(integrationsDir))
+        {
+            File.Delete(file);
+        }
     }
 }

@@ -30,5 +30,11 @@
   "Downloader": {
     "ParallelDownloads": 2,
     "PublicShareRoot": "https://arquivos.receitafederal.gov.br/public.php/dav/files/YggdBLfdninEJX9/"
+  },
+  "CnoIntegration": {
+    "Enabled": true,
+    "PublicShareRoot": "https://arquivos.receitafederal.gov.br/public.php/dav/files/gn672Ad4CF8N6TK/Dados/Cadastros/CNO/",
+    "ZipFileName": "cno.zip",
+    "RefreshHours": 24
   }
 }

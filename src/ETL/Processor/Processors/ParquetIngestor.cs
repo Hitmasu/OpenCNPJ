@@ -1,8 +1,12 @@
 using System.Collections.Concurrent;
+using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
 using CNPJExporter.Configuration;
 using CNPJExporter.Exporters;
+using CNPJExporter.Integrations;
+using CNPJExporter.Modules.Receita.Processors;
+using CNPJExporter.Processors.Models;
 using CNPJExporter.Utils;
 using DuckDB.NET.Data;
 using Spectre.Console;
@@ -13,18 +17,24 @@ public class ParquetIngestor : IDisposable
 {
     private const string ShardDataExtension = ".ndjson";
     private const string ShardIndexExtension = ".index.bin";
+    private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly string? _datasetKey;
-    private readonly string _dataDir;
-    private readonly string _parquetDir;
     private readonly string _dataSource;
     private readonly DuckDBConnection _connection;
+    private readonly ParquetProcessor _parquetProcessor;
+    private readonly ShardQueryBuilder _shardQueryBuilder;
 
     public ParquetIngestor(string? datasetKey = null)
     {
         _datasetKey = ResolveDatasetKey(datasetKey);
-        _dataDir = DatasetPathResolver.GetDatasetPath(AppConfig.Current.Paths.DataDir, _datasetKey);
-        _parquetDir = DatasetPathResolver.GetDatasetPath(AppConfig.Current.Paths.ParquetDir, _datasetKey);
-        Directory.CreateDirectory(_parquetDir);
+        var dataDir = DatasetPathResolver.GetDatasetPath(AppConfig.Current.Paths.DataDir, _datasetKey);
+        var parquetDir = DatasetPathResolver.GetDatasetPath(AppConfig.Current.Paths.ParquetDir, _datasetKey);
+        Directory.CreateDirectory(parquetDir);
+        _parquetProcessor = new ParquetProcessor(
+            dataDir,
+            parquetDir,
+            AppConfig.Current.Shards.PrefixLength);
+        _shardQueryBuilder = new ShardQueryBuilder(parquetDir);
 
         _dataSource = AppConfig.Current.DuckDb.UseInMemory ? ":memory:" : "./cnpj.duckdb";
         _connection = new($"Data Source={_dataSource}");
@@ -67,133 +77,13 @@ public class ParquetIngestor : IDisposable
 
     public async Task ConvertCsvsToParquet()
     {
-        var tableConfigs = new Dictionary<string, (string Pattern, string[] Columns)>
-        {
-            ["empresa"] = ("*EMPRECSV*", [
-                "cnpj_basico", "razao_social", "natureza_juridica",
-                "qualificacao_responsavel", "capital_social", "porte_empresa", "ente_federativo"
-            ]),
-            ["estabelecimento"] = ("*ESTABELE*", [
-                "cnpj_basico", "cnpj_ordem", "cnpj_dv", "identificador_matriz_filial",
-                "nome_fantasia", "situacao_cadastral", "data_situacao_cadastral",
-                "motivo_situacao_cadastral", "nome_cidade_exterior", "codigo_pais",
-                "data_inicio_atividade", "cnae_principal", "cnaes_secundarios",
-                "tipo_logradouro", "logradouro", "numero", "complemento", "bairro",
-                "cep", "uf", "codigo_municipio", "ddd1", "telefone1", "ddd2",
-                "telefone2", "ddd_fax", "fax", "correio_eletronico", "situacao_especial",
-                "data_situacao_especial"
-            ]),
-            ["socio"] = ("*SOCIOCSV*", [
-                "cnpj_basico", "identificador_socio", "nome_socio", "cnpj_cpf_socio",
-                "qualificacao_socio", "data_entrada_sociedade", "codigo_pais",
-                "representante_legal", "nome_representante", "qualificacao_representante",
-                "faixa_etaria"
-            ]),
-            ["simples"] = ("*SIMPLES*", [
-                "cnpj_basico", "opcao_simples", "data_opcao_simples",
-                "data_exclusao_simples", "opcao_mei", "data_opcao_mei",
-                "data_exclusao_mei"
-            ]),
-            ["cnae"] = ("*CNAECSV*", ["codigo", "descricao"]),
-            ["motivo"] = ("*MOTICSV*", ["codigo", "descricao"]),
-            ["municipio"] = ("*MUNICCSV*", ["codigo", "descricao"]),
-            ["natureza"] = ("*NATJUCSV*", ["codigo", "descricao"]),
-            ["pais"] = ("*PAISCSV*", ["codigo", "descricao"]),
-            ["qualificacao"] = ("*QUALSCSV*", ["codigo", "descricao"])
-        };
-
-        await AnsiConsole.Progress()
-            .StartAsync(async ctx =>
-            {
-                foreach (var (tableName, (pattern, columns)) in tableConfigs)
-                {
-                    var task = ctx.AddTask($"[green]Processando {tableName}[/]");
-                    var files = Directory.GetFiles(_dataDir, pattern, SearchOption.AllDirectories);
-
-                    if (files.Length == 0)
-                    {
-                        AnsiConsole.MarkupLine($"[yellow]Nenhum arquivo encontrado para {tableName} ({pattern})[/]");
-                        task.Increment(100);
-                        continue;
-                    }
-
-                    task.Description = $"[green]Processando {tableName} ({files.Length} arquivo(s))[/]";
-                    task.MaxValue = files.Length;
-                    await ConvertTableToParquet(tableName, files, columns, task);
-                }
-            });
-
+        await _parquetProcessor.ConvertCsvsToParquetAsync(_connection);
     }
 
-    private async Task ConvertTableToParquet(string tableName, string[] csvFiles, string[] columns, ProgressTask task)
-    {
-        var parquetPath = Path.Combine(_parquetDir, $"{tableName}.parquet");
-        var partitionedDir = Path.Combine(_parquetDir, tableName);
-
-        string[] shardedSourceTables = ["estabelecimento", "empresa", "simples", "socio"];
-        var hasExistingParquet = shardedSourceTables.Contains(tableName)
-            ? Directory.Exists(partitionedDir) && Directory.EnumerateFiles(partitionedDir, "*.parquet", SearchOption.AllDirectories).Any()
-            : File.Exists(parquetPath);
-
-        if (hasExistingParquet)
-        {
-            task.Value = task.MaxValue;
-            AnsiConsole.MarkupLine($"[yellow]Pulando {tableName}: Parquet já existe[/]");
-            return;
-        }
-
-        if (shardedSourceTables.Contains(tableName))
-        {
-            await DirectoryUtils.RecreateDirectoryAsync(partitionedDir);
-
-            for (var index = 0; index < csvFiles.Length; index++)
-            {
-                var csvFile = csvFiles[index];
-                var sourceSql = BuildCsvSourceRelationSql([csvFile], columns);
-                var exportSql = $@"
-                    COPY (
-                        SELECT *,
-                               SUBSTRING(cnpj_basico, 1, {AppConfig.Current.Shards.PrefixLength}) as cnpj_prefix
-                        FROM {sourceSql} AS src
-                    )
-                    TO '{EscapeSqlLiteral(partitionedDir)}'
-                    (
-                        FORMAT PARQUET,
-                        COMPRESSION ZSTD,
-                        PARTITION_BY (cnpj_prefix),
-                        APPEND,
-                        FILENAME_PATTERN 'chunk_{index:D3}_{{uuid}}'
-                    )";
-
-                await using var exportCmd = _connection.CreateCommand();
-                exportCmd.CommandText = exportSql;
-                await exportCmd.ExecuteNonQueryAsync();
-                task.Increment(1);
-            }
-
-            AnsiConsole.MarkupLine($"[green]✓ {tableName} convertido para Parquet particionado por cnpj_prefix[/]");
-        }
-        else
-        {
-            DeleteIfExists(parquetPath);
-            var sourceSql = BuildCsvSourceRelationSql(csvFiles, columns);
-            var exportSql = $@"
-                COPY (
-                    SELECT *
-                    FROM {sourceSql} AS src
-                )
-                TO '{EscapeSqlLiteral(parquetPath)}' (FORMAT PARQUET, COMPRESSION ZSTD, OVERWRITE)";
-
-            await using var exportCmd = _connection.CreateCommand();
-            exportCmd.CommandText = exportSql;
-            await exportCmd.ExecuteNonQueryAsync();
-
-            task.Value = task.MaxValue;
-            AnsiConsole.MarkupLine($"[green]✓ {tableName}.parquet criado[/]");
-        }
-    }
-
-    public async Task ExportAndUploadToStorage(string outputRootDir, string releaseId)
+    public async Task ExportAndUploadToStorage(
+        string outputRootDir,
+        string releaseId,
+        IReadOnlyCollection<string>? prefixesToRegenerate = null)
     {
         var outputDir = GetDatasetOutputDir(outputRootDir);
         var releaseOutputDir = GetLocalReleaseOutputDir(outputRootDir, releaseId);
@@ -205,66 +95,30 @@ public class ParquetIngestor : IDisposable
 
         AnsiConsole.MarkupLine("[cyan]🚀 Iniciando geração e upload de shards...[/]");
 
-        await ExportShardsToStorage(releaseOutputDir, releaseId);
+        await ExportShardsToStorage(releaseOutputDir, releaseId, prefixesToRegenerate);
 
         AnsiConsole.MarkupLine("[green]🎉 Geração e upload de shards concluídos![/]");
     }
 
     private async Task LoadParquetTablesForConnection(DuckDBConnection connection, bool includeShardTables = true)
     {
-        var tableConfigs = new Dictionary<string, string>();
-
-        if (includeShardTables)
-        {
-            tableConfigs["empresa"] = "empresa/**/*.parquet";
-            tableConfigs["estabelecimento"] = "estabelecimento/**/*.parquet";
-            tableConfigs["socio"] = "socio/**/*.parquet";
-            tableConfigs["simples"] = "simples/**/*.parquet";
-        }
-
-        tableConfigs["cnae"] = "cnae.parquet";
-        tableConfigs["motivo"] = "motivo.parquet";
-        tableConfigs["municipio"] = "municipio.parquet";
-        tableConfigs["natureza"] = "natureza.parquet";
-        tableConfigs["pais"] = "pais.parquet";
-        tableConfigs["qualificacao"] = "qualificacao.parquet";
-
-        foreach (var (tableName, pattern) in tableConfigs)
-        {
-            try
-            {
-                var fullPath = Path.Combine(_parquetDir, pattern);
-                var createViewSql = IsShardPartitionedTable(tableName)
-                    ? $"CREATE OR REPLACE VIEW {tableName} AS SELECT * FROM read_parquet('{fullPath}', hive_partitioning = true, hive_types = {{'cnpj_prefix': VARCHAR}})"
-                    : $"CREATE OR REPLACE VIEW {tableName} AS SELECT * FROM read_parquet('{fullPath}')";
-
-                await using var cmd = connection.CreateCommand();
-                cmd.CommandText = createViewSql;
-                await cmd.ExecuteNonQueryAsync();
-
-                if (connection == _connection)
-                {
-                    AnsiConsole.MarkupLine($"[green]✓ Tabela {tableName} carregada[/]");
-                }
-            }
-            catch (Exception ex)
-            {
-                if (connection == _connection)
-                {
-                    AnsiConsole.MarkupLine($"[yellow]Aviso ao carregar {tableName}: {ex.Message.EscapeMarkup()}[/]");
-                }
-            }
-        }
+        await _parquetProcessor.LoadTablesForConnectionAsync(
+            connection,
+            includeShardTables,
+            showWarnings: connection == _connection);
     }
 
-    private async Task ExportShardsToStorage(string outputDir, string releaseId)
+    private async Task ExportShardsToStorage(
+        string outputDir,
+        string releaseId,
+        IReadOnlyCollection<string>? prefixesToRegenerate)
     {
         var localShardDir = Path.Combine(outputDir, AppConfig.Current.Shards.RemoteDir);
         Directory.CreateDirectory(localShardDir);
 
-        var allPrefixes = GetExistingShardPrefixesFromFilesystem();
+        var allPrefixes = _shardQueryBuilder.GetExistingShardPrefixes();
         var releaseRemoteDir = BuildReleaseShardRemoteDir(releaseId);
-        var releasePlan = BuildReleasePlan(localShardDir, allPrefixes);
+        var releasePlan = BuildReleasePlan(localShardDir, allPrefixes, prefixesToRegenerate);
         var emptyCount = 0;
         var batchSize = Math.Max(1, AppConfig.Current.Shards.QueryBatchSize);
         var prefixBatches = BuildShardPrefixBatches(releasePlan.PrefixesToGenerate, batchSize);
@@ -335,7 +189,6 @@ public class ParquetIngestor : IDisposable
                 uploadTask.Value = uploadTask.MaxValue;
             });
 
-        var uploadedCount = allPrefixes.Count - emptyCount;
         AnsiConsole.MarkupLine(
             $"[green]✓ Shards processados[/] [grey](total: {allPrefixes.Count}, reuso local/upload: {releasePlan.PrefixesUploadOnly.Count}, regenerados: {releasePlan.PrefixesToGenerate.Count}, vazios: {emptyCount}, workers: {workerCount}, batch: {batchSize})[/]");
     }
@@ -373,7 +226,7 @@ public class ParquetIngestor : IDisposable
         string outputDir)
     {
         var availablePrefixes = prefixes
-            .Where(prefix => PartitionHasParquetFiles("estabelecimento", prefix))
+            .Where(prefix => _shardQueryBuilder.HasPartitionData("estabelecimento", prefix))
             .ToList();
         var counts = prefixes.ToDictionary(prefix => prefix, _ => 0, StringComparer.Ordinal);
 
@@ -408,7 +261,7 @@ public class ParquetIngestor : IDisposable
                 writers[prefix] = writer;
             }
 
-            var query = BuildJsonQueryForPrefixBatch(availablePrefixes, includeCnpjColumn: true, jsonAlias: "json_data");
+            var query = _shardQueryBuilder.BuildJsonQueryForPrefixBatch(availablePrefixes, includeCnpjColumn: true, jsonAlias: "json_data");
             await using var cmd = connection.CreateCommand();
             cmd.CommandText = query;
 
@@ -476,7 +329,7 @@ public class ParquetIngestor : IDisposable
         try
         {
             var outputFile = Path.Combine(resolvedOutputDir, $"{normalizedCnpj}.json");
-            var exportQuery = BuildJsonQueryForCnpj(prefixStr, cnpjBasico, cnpjOrdem, cnpjDv, jsonAlias: "json_output");
+            var exportQuery = _shardQueryBuilder.BuildJsonQueryForCnpj(prefixStr, cnpjBasico, cnpjOrdem, cnpjDv, jsonAlias: "json_output");
 
             await using var cmd = _connection.CreateCommand();
             cmd.CommandText = exportQuery;
@@ -529,25 +382,23 @@ public class ParquetIngestor : IDisposable
     /// <summary>
     /// Exporta todos os shards diretamente para ZIP sem criar arquivos temporários em disco
     /// </summary>
-    public async Task GenerateAndUploadFinalInfoJsonAsync(string releaseId)
+    public async Task GenerateAndUploadFinalInfoJsonAsync(
+        string releaseId,
+        IReadOnlyList<DataIntegrationRunSummary>? integrationSummaries = null,
+        string? receitaLastUpdated = null,
+        IReadOnlyDictionary<string, string>? shardReleases = null,
+        string? defaultShardReleaseId = null)
     {
         try
         {
             // Garante que as views estejam disponíveis para contagem
             await LoadParquetTablesForConnection(_connection);
 
-            long total = 0;
-            await using (var cmd = _connection.CreateCommand())
-            {
-                cmd.CommandText = "SELECT COUNT(*) FROM estabelecimento";
-                var result = await cmd.ExecuteScalarAsync();
-                if (result != null && long.TryParse(result.ToString(), out var count))
-                {
-                    total = count;
-                }
-            }
+            var total = CountShardRecordsFromIndexes(AppConfig.Current.Paths.OutputDir, releaseId);
 
-            var lastUpdated = DateTime.UtcNow.ToString("o");
+            var lastUpdated = string.IsNullOrWhiteSpace(receitaLastUpdated)
+                ? DateTime.UtcNow.ToString("o")
+                : receitaLastUpdated;
 
             var payload = new
             {
@@ -558,14 +409,15 @@ public class ParquetIngestor : IDisposable
                 zip_url = "",
                 zip_md5checksum = "",
                 shard_prefix_length = AppConfig.Current.Shards.PrefixLength,
-                shard_count = GetShardCountFromFilesystem(),
+                shard_count = _shardQueryBuilder.GetShardCount(),
                 storage_release_id = releaseId,
-                shard_path_template = $"{BuildReleaseShardRemoteDir(releaseId)}/{{prefix}}{ShardDataExtension}",
-                shard_index_path_template = $"files/{AppConfig.Current.Shards.RemoteDir.Trim('/')}/{{prefix}}{ShardIndexExtension}",
-                shard_index_distribution = "worker-assets",
+                default_shard_release_id = defaultShardReleaseId ?? releaseId,
+                shard_releases = shardReleases ?? new Dictionary<string, string>(StringComparer.Ordinal),
+                shard_index_distribution = "r2",
                 shard_format = "ndjson+binary-index",
                 zip_layout = "disabled",
-                cnpj_type = "string"
+                cnpj_type = "string",
+                sources = BuildInfoSources(lastUpdated, integrationSummaries ?? [])
             };
 
             var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
@@ -577,7 +429,7 @@ public class ParquetIngestor : IDisposable
             var outputDir = GetLocalReleaseOutputDir(AppConfig.Current.Paths.OutputDir, releaseId);
             Directory.CreateDirectory(outputDir);
             var localInfoPath = Path.Combine(outputDir, "info.json");
-            await File.WriteAllTextAsync(localInfoPath, json, Encoding.UTF8);
+            await File.WriteAllTextAsync(localInfoPath, json, Utf8NoBom);
 
             AnsiConsole.MarkupLine("[cyan]📤 Enviando info.json para Storage...[/]");
             var ok = await RcloneClient.UploadFileAsync(localInfoPath, "info.json");
@@ -602,7 +454,7 @@ public class ParquetIngestor : IDisposable
         string outputPath,
         string indexPath)
     {
-        var query = BuildJsonQueryForPrefix(prefixStr, includeCnpjColumn: true, jsonAlias: "json_data");
+        var query = _shardQueryBuilder.BuildJsonQueryForPrefix(prefixStr, includeCnpjColumn: true, jsonAlias: "json_data");
 
         if (query is null)
             return 0;
@@ -633,42 +485,34 @@ public class ParquetIngestor : IDisposable
         return DatasetPathResolver.ResolveLatestLocalDatasetKey(AppConfig.Current.Paths);
     }
 
-    private static string BuildCsvSourceRelationSql(IEnumerable<string> csvFiles, IReadOnlyList<string> columns)
-    {
-        var fileListSql = string.Join(", ", csvFiles.Select(file => $"'{EscapeSqlLiteral(file)}'"));
-        var columnsSql = string.Join(", ", columns.Select(column => $"'{EscapeSqlLiteral(column)}': 'VARCHAR'"));
-
-        return $@"read_csv([{fileListSql}],
-                    auto_detect=false,
-                    sep=';',
-                    header=false,
-                    encoding='CP1252',
-                    ignore_errors=true,
-                    parallel=false,
-                    max_line_size=10000000,
-                    columns={{{columnsSql}}})";
-    }
-
-    private static string EscapeSqlLiteral(string value)
-    {
-        return value.Replace("'", "''");
-    }
-
     private static string BuildReleaseShardRemoteDir(string releaseId)
     {
         return $"shards/releases/{releaseId.Trim('/')}";
     }
 
-    private static ReleasePlan BuildReleasePlan(
+    private static ShardReleasePlan BuildReleasePlan(
         string localShardDir,
-        IReadOnlyList<string> allPrefixes)
+        IReadOnlyList<string> allPrefixes,
+        IReadOnlyCollection<string>? prefixesToRegenerate)
     {
+        var forcedPrefixes = prefixesToRegenerate is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(prefixesToRegenerate, StringComparer.Ordinal);
         var prefixesUploadOnly = new List<string>();
         var prefixesToGenerate = new List<string>();
 
         foreach (var prefix in allPrefixes)
         {
-            if (File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardDataExtension}"))
+            if (prefixesToRegenerate is not null)
+            {
+                if (forcedPrefixes.Contains(prefix))
+                    prefixesToGenerate.Add(prefix);
+
+                continue;
+            }
+
+            if (!forcedPrefixes.Contains(prefix)
+                && File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardDataExtension}"))
                 && File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardIndexExtension}")))
             {
                 prefixesUploadOnly.Add(prefix);
@@ -679,9 +523,62 @@ public class ParquetIngestor : IDisposable
             }
         }
 
-        return new ReleasePlan(
+        return new ShardReleasePlan(
             prefixesUploadOnly,
             prefixesToGenerate);
+    }
+
+    internal static (IReadOnlyList<string> UploadOnly, IReadOnlyList<string> ToGenerate) BuildReleasePlanForTest(
+        string localShardDir,
+        IReadOnlyList<string> allPrefixes,
+        IReadOnlyCollection<string>? prefixesToRegenerate)
+    {
+        var plan = BuildReleasePlan(localShardDir, allPrefixes, prefixesToRegenerate);
+        return (plan.PrefixesUploadOnly, plan.PrefixesToGenerate);
+    }
+
+    internal static Encoding InfoJsonEncodingForTest => Utf8NoBom;
+
+    internal long CountShardRecordsFromIndexesForTest(string outputRootDir, string releaseId) =>
+        CountShardRecordsFromIndexes(outputRootDir, releaseId);
+
+    internal long CountShardRecordsFromIndexesForPublication(string outputRootDir, string releaseId) =>
+        CountShardRecordsFromIndexes(outputRootDir, releaseId);
+
+    private long CountShardRecordsFromIndexes(string outputRootDir, string releaseId)
+    {
+        var shardDir = Path.Combine(GetLocalReleaseOutputDir(outputRootDir, releaseId), AppConfig.Current.Shards.RemoteDir);
+        return CountShardRecordsFromIndexDirectory(shardDir);
+    }
+
+    internal static long CountShardRecordsFromIndexDirectoryForTest(string shardDir) =>
+        CountShardRecordsFromIndexDirectory(shardDir);
+
+    private static long CountShardRecordsFromIndexDirectory(string shardDir)
+    {
+        if (!Directory.Exists(shardDir))
+            return 0;
+
+        long total = 0;
+        Span<byte> header = stackalloc byte[BinaryIndexedShardWriter.HeaderSize];
+
+        foreach (var indexPath in Directory.EnumerateFiles(shardDir, $"*{ShardIndexExtension}", SearchOption.TopDirectoryOnly))
+        {
+            using var stream = File.OpenRead(indexPath);
+            if (stream.Length < BinaryIndexedShardWriter.HeaderSize)
+                continue;
+
+            var read = stream.Read(header);
+            if (read != BinaryIndexedShardWriter.HeaderSize
+                || !header[..4].SequenceEqual("OCI1"u8))
+            {
+                continue;
+            }
+
+            total += BinaryPrimitives.ReadUInt32LittleEndian(header[4..]);
+        }
+
+        return total;
     }
 
     private static IReadOnlyList<string> BuildUploadTargets(
@@ -690,7 +587,11 @@ public class ParquetIngestor : IDisposable
         prefixes
             .Distinct(StringComparer.Ordinal)
             .OrderBy(prefix => prefix, StringComparer.Ordinal)
-            .Select(prefix => $"{prefix}{ShardDataExtension}")
+            .SelectMany(prefix => new[]
+            {
+                $"{prefix}{ShardDataExtension}",
+                $"{prefix}{ShardIndexExtension}"
+            })
             .Where(path => File.Exists(Path.Combine(localShardDir, path)))
             .ToArray();
 
@@ -704,10 +605,6 @@ public class ParquetIngestor : IDisposable
         return Path.Combine(GetDatasetOutputDir(outputRootDir), "releases", releaseId.Trim('/'));
     }
 
-    private sealed record ReleasePlan(
-        IReadOnlyList<string> PrefixesUploadOnly,
-        IReadOnlyList<string> PrefixesToGenerate);
-
     private static void ReplaceFile(string sourcePath, string destinationPath)
     {
         DeleteIfExists(destinationPath);
@@ -720,11 +617,6 @@ public class ParquetIngestor : IDisposable
             File.Delete(path);
     }
 
-    private static bool IsShardPartitionedTable(string tableName)
-    {
-        return tableName is "estabelecimento" or "empresa" or "simples" or "socio";
-    }
-
     private async Task<DuckDBConnection> CreateConfiguredConnectionAsync()
     {
         var connection = new DuckDBConnection($"Data Source={_dataSource}");
@@ -733,33 +625,7 @@ public class ParquetIngestor : IDisposable
         return connection;
     }
 
-    private static void AddParameter(System.Data.Common.DbCommand command, string name, object value)
-    {
-        var parameter = command.CreateParameter();
-        parameter.ParameterName = name;
-        parameter.Value = value;
-        command.Parameters.Add(parameter);
-    }
-
-    private List<string> GetExistingShardPrefixesFromFilesystem()
-    {
-        var partitionedDir = Path.Combine(_parquetDir, "estabelecimento");
-        if (!Directory.Exists(partitionedDir))
-            return [];
-
-        return Directory.EnumerateDirectories(partitionedDir, "cnpj_prefix=*", SearchOption.TopDirectoryOnly)
-            .Select(Path.GetFileName)
-            .Where(static name => !string.IsNullOrWhiteSpace(name))
-            .Select(static name => name!["cnpj_prefix=".Length..])
-            .Where(static prefix => !string.IsNullOrWhiteSpace(prefix))
-            .OrderBy(static prefix => prefix, StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private int GetShardCountFromFilesystem()
-    {
-        return GetExistingShardPrefixesFromFilesystem().Count;
-    }
+    internal int GetShardCountFromFilesystemForPublication() => _shardQueryBuilder.GetShardCount();
 
     private static List<List<string>> BuildShardPrefixBatches(IReadOnlyList<string> prefixes, int batchSize)
     {
@@ -772,375 +638,30 @@ public class ParquetIngestor : IDisposable
         return batches;
     }
 
-    private static string GetJsonStructFields()
+    private object BuildInfoSources(
+        string receitaUpdatedAt,
+        IReadOnlyList<DataIntegrationRunSummary> integrationSummaries)
     {
-        return @"cnpj := e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv,
-                    razao_social := COALESCE(emp.razao_social, ''),
-                    nome_fantasia := COALESCE(e.nome_fantasia, ''),
-                    situacao_cadastral := CASE LPAD(e.situacao_cadastral, 2, '0')
-                        WHEN '01' THEN 'Nula'
-                        WHEN '02' THEN 'Ativa'
-                        WHEN '03' THEN 'Suspensa'
-                        WHEN '04' THEN 'Inapta'
-                        WHEN '08' THEN 'Baixada'
-                        ELSE e.situacao_cadastral
-                    END,
-                    data_situacao_cadastral := CASE 
-                        WHEN e.data_situacao_cadastral ~ '^[0-9]{8}$' 
-                        THEN SUBSTRING(e.data_situacao_cadastral, 1, 4) || '-' || 
-                             SUBSTRING(e.data_situacao_cadastral, 5, 2) || '-' || 
-                             SUBSTRING(e.data_situacao_cadastral, 7, 2)
-                        ELSE COALESCE(e.data_situacao_cadastral, '')
-                    END,
-                    matriz_filial := CASE e.identificador_matriz_filial
-                        WHEN '1' THEN 'Matriz'
-                        WHEN '2' THEN 'Filial'
-                        ELSE e.identificador_matriz_filial
-                    END,
-                    data_inicio_atividade := CASE 
-                        WHEN e.data_inicio_atividade ~ '^[0-9]{8}$' 
-                        THEN SUBSTRING(e.data_inicio_atividade, 1, 4) || '-' || 
-                             SUBSTRING(e.data_inicio_atividade, 5, 2) || '-' || 
-                             SUBSTRING(e.data_inicio_atividade, 7, 2)
-                        ELSE COALESCE(e.data_inicio_atividade, '')
-                    END,
-                    cnae_principal := COALESCE(e.cnae_principal, ''),
-                    cnaes_secundarios := CASE 
-                        WHEN e.cnaes_secundarios IS NOT NULL AND e.cnaes_secundarios != ''
-                        THEN string_split(e.cnaes_secundarios, ',')
-                        ELSE []
-                    END,
-                    natureza_juridica := COALESCE(nat.descricao, ''),
-                    tipo_logradouro := COALESCE(e.tipo_logradouro, ''),
-                    logradouro := COALESCE(e.logradouro, ''),
-                    numero := COALESCE(e.numero, ''),
-                    complemento := COALESCE(e.complemento, ''),
-                    bairro := COALESCE(e.bairro, ''),
-                    cep := COALESCE(e.cep, ''),
-                    uf := COALESCE(e.uf, ''),
-                    municipio := COALESCE(mun.descricao, ''),
-                    email := COALESCE(e.correio_eletronico, ''),
-                    telefones := list_filter([
-                        CASE WHEN e.ddd1 IS NOT NULL OR e.telefone1 IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := COALESCE(e.telefone1, ''), is_fax := false)
-                             ELSE NULL
-                        END,
-                        CASE WHEN e.ddd2 IS NOT NULL OR e.telefone2 IS NOT NULL  
-                             THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := COALESCE(e.telefone2, ''), is_fax := false)
-                             ELSE NULL
-                        END,
-                        CASE WHEN e.ddd_fax IS NOT NULL OR e.fax IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := COALESCE(e.fax, ''), is_fax := true)
-                             ELSE NULL
-                        END
-                    ], x -> x IS NOT NULL),
-                    capital_social := COALESCE(emp.capital_social, ''),
-                    porte_empresa := CASE emp.porte_empresa
-                        WHEN '00' THEN 'Não informado'
-                        WHEN '01' THEN 'Microempresa (ME)'
-                        WHEN '03' THEN 'Empresa de Pequeno Porte (EPP)'
-                        WHEN '05' THEN 'Demais'
-                        ELSE COALESCE(emp.porte_empresa, '')
-                    END,
-                    opcao_simples := COALESCE(s.opcao_simples, ''),
-                    data_opcao_simples := CASE 
-                        WHEN s.data_opcao_simples ~ '^[0-9]{8}$' 
-                        THEN SUBSTRING(s.data_opcao_simples, 1, 4) || '-' || 
-                             SUBSTRING(s.data_opcao_simples, 5, 2) || '-' || 
-                             SUBSTRING(s.data_opcao_simples, 7, 2)
-                        ELSE COALESCE(s.data_opcao_simples, '')
-                    END,
-                    opcao_mei := COALESCE(s.opcao_mei, ''),
-                    data_opcao_mei := CASE 
-                        WHEN s.data_opcao_mei ~ '^[0-9]{8}$' 
-                        THEN SUBSTRING(s.data_opcao_mei, 1, 4) || '-' || 
-                             SUBSTRING(s.data_opcao_mei, 5, 2) || '-' || 
-                             SUBSTRING(s.data_opcao_mei, 7, 2)
-                        ELSE COALESCE(s.data_opcao_mei, '')
-                    END,
-                    QSA := COALESCE(sd.qsa_data, [])";
-    }
-
-    private bool PartitionHasParquetFiles(string tableName, string prefix)
-    {
-        var partitionDir = Path.Combine(_parquetDir, tableName, $"cnpj_prefix={prefix}");
-        return Directory.Exists(partitionDir)
-               && Directory.EnumerateFiles(partitionDir, "*.parquet", SearchOption.TopDirectoryOnly).Any();
-    }
-
-    private IEnumerable<string> GetPartitionGlobPaths(string tableName, IReadOnlyList<string> prefixes)
-    {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var prefix in prefixes)
+        return new
         {
-            var partitionDir = Path.Combine(_parquetDir, tableName, $"cnpj_prefix={prefix}");
-            if (!Directory.Exists(partitionDir))
-                continue;
-
-            var glob = Path.Combine(partitionDir, "*.parquet");
-            if (seen.Add(glob))
-                yield return glob;
-        }
-    }
-
-    private string BuildPartitionedReadSql(string tableName, IReadOnlyList<string> prefixes, bool allowEmpty)
-    {
-        var globs = GetPartitionGlobPaths(tableName, prefixes).ToList();
-        if (globs.Count == 0)
-        {
-            if (!allowEmpty)
-                throw new InvalidOperationException($"Nenhuma partição Parquet encontrada para {tableName}.");
-
-            return BuildEmptyShardTableSql(tableName);
-        }
-
-        var pathListSql = string.Join(", ", globs.Select(path => $"'{EscapeSqlLiteral(path)}'"));
-        return $"read_parquet([{pathListSql}], hive_partitioning = true, hive_types = {{'cnpj_prefix': VARCHAR}})";
-    }
-
-    private static string BuildEmptyShardTableSql(string tableName)
-    {
-        return tableName switch
-        {
-            "empresa" =>
-                "(SELECT CAST(NULL AS VARCHAR) AS cnpj_basico, CAST(NULL AS VARCHAR) AS razao_social, CAST(NULL AS VARCHAR) AS natureza_juridica, CAST(NULL AS VARCHAR) AS qualificacao_responsavel, CAST(NULL AS VARCHAR) AS capital_social, CAST(NULL AS VARCHAR) AS porte_empresa, CAST(NULL AS VARCHAR) AS ente_federativo, CAST(NULL AS VARCHAR) AS cnpj_prefix WHERE FALSE)",
-            "simples" =>
-                "(SELECT CAST(NULL AS VARCHAR) AS cnpj_basico, CAST(NULL AS VARCHAR) AS opcao_simples, CAST(NULL AS VARCHAR) AS data_opcao_simples, CAST(NULL AS VARCHAR) AS data_exclusao_simples, CAST(NULL AS VARCHAR) AS opcao_mei, CAST(NULL AS VARCHAR) AS data_opcao_mei, CAST(NULL AS VARCHAR) AS data_exclusao_mei, CAST(NULL AS VARCHAR) AS cnpj_prefix WHERE FALSE)",
-            "socio" =>
-                "(SELECT CAST(NULL AS VARCHAR) AS cnpj_basico, CAST(NULL AS VARCHAR) AS identificador_socio, CAST(NULL AS VARCHAR) AS nome_socio, CAST(NULL AS VARCHAR) AS cnpj_cpf_socio, CAST(NULL AS VARCHAR) AS qualificacao_socio, CAST(NULL AS VARCHAR) AS data_entrada_sociedade, CAST(NULL AS VARCHAR) AS codigo_pais, CAST(NULL AS VARCHAR) AS representante_legal, CAST(NULL AS VARCHAR) AS nome_representante, CAST(NULL AS VARCHAR) AS qualificacao_representante, CAST(NULL AS VARCHAR) AS faixa_etaria, CAST(NULL AS VARCHAR) AS cnpj_prefix WHERE FALSE)",
-            "estabelecimento" =>
-                "(SELECT CAST(NULL AS VARCHAR) AS cnpj_basico, CAST(NULL AS VARCHAR) AS cnpj_ordem, CAST(NULL AS VARCHAR) AS cnpj_dv, CAST(NULL AS VARCHAR) AS identificador_matriz_filial, CAST(NULL AS VARCHAR) AS nome_fantasia, CAST(NULL AS VARCHAR) AS situacao_cadastral, CAST(NULL AS VARCHAR) AS data_situacao_cadastral, CAST(NULL AS VARCHAR) AS motivo_situacao_cadastral, CAST(NULL AS VARCHAR) AS nome_cidade_exterior, CAST(NULL AS VARCHAR) AS codigo_pais, CAST(NULL AS VARCHAR) AS data_inicio_atividade, CAST(NULL AS VARCHAR) AS cnae_principal, CAST(NULL AS VARCHAR) AS cnaes_secundarios, CAST(NULL AS VARCHAR) AS tipo_logradouro, CAST(NULL AS VARCHAR) AS logradouro, CAST(NULL AS VARCHAR) AS numero, CAST(NULL AS VARCHAR) AS complemento, CAST(NULL AS VARCHAR) AS bairro, CAST(NULL AS VARCHAR) AS cep, CAST(NULL AS VARCHAR) AS uf, CAST(NULL AS VARCHAR) AS codigo_municipio, CAST(NULL AS VARCHAR) AS ddd1, CAST(NULL AS VARCHAR) AS telefone1, CAST(NULL AS VARCHAR) AS ddd2, CAST(NULL AS VARCHAR) AS telefone2, CAST(NULL AS VARCHAR) AS ddd_fax, CAST(NULL AS VARCHAR) AS fax, CAST(NULL AS VARCHAR) AS correio_eletronico, CAST(NULL AS VARCHAR) AS situacao_especial, CAST(NULL AS VARCHAR) AS data_situacao_especial, CAST(NULL AS VARCHAR) AS cnpj_prefix WHERE FALSE)",
-            _ => throw new InvalidOperationException($"Tabela shard não suportada: {tableName}")
+            receita = new
+            {
+                dataset_key = _datasetKey,
+                updated_at = receitaUpdatedAt
+            },
+            integrations = integrationSummaries.ToDictionary(
+                summary => summary.Descriptor.Key,
+                summary => new
+                {
+                    updated_at = summary.UpdatedAt.ToString("o"),
+                    source_version = summary.SourceVersion,
+                    schema_version = summary.Descriptor.SchemaVersion,
+                    record_count = summary.RecordCount,
+                    changed_cnpj_count = summary.ChangedCnpjs.Count,
+                    json_property_name = summary.Descriptor.JsonPropertyName
+                },
+                StringComparer.Ordinal)
         };
-    }
-
-    private string? BuildJsonQueryForPrefix(string prefixStr, bool includeCnpjColumn, string jsonAlias)
-    {
-        if (!PartitionHasParquetFiles("estabelecimento", prefixStr))
-            return null;
-
-        var jsonFields = GetJsonStructFields();
-        var prefixLiteral = EscapeSqlLiteral(prefixStr);
-        var prefixes = new[] { prefixStr };
-        var estabelecimentoRelation = BuildPartitionedReadSql("estabelecimento", prefixes, allowEmpty: false);
-        var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
-        var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
-        var socioRelation = BuildPartitionedReadSql("socio", prefixes, allowEmpty: true);
-        var selectCols = includeCnpjColumn
-            ? "e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv as cnpj, to_json(struct_pack(\n" + jsonFields +
-              $"\n)) as {jsonAlias}"
-            : $"to_json(struct_pack(\n" + jsonFields + $"\n)) as {jsonAlias}";
-
-        return $@"WITH estabelecimento_data AS (
-                SELECT * FROM {estabelecimentoRelation}
-            ),
-            empresa_data AS (
-                SELECT * FROM {empresaRelation}
-            ),
-            simples_data AS (
-                SELECT * FROM {simplesRelation}
-            ),
-            socio_data AS (
-                SELECT * FROM {socioRelation}
-            ),
-            socios_data AS (
-                SELECT 
-                    s.cnpj_prefix,
-                    s.cnpj_basico,
-                    array_agg(struct_pack(
-                        nome_socio := COALESCE(s.nome_socio, ''),
-                        cnpj_cpf_socio := COALESCE(s.cnpj_cpf_socio, ''),
-                        qualificacao_socio := COALESCE(qs.descricao, ''),
-                        data_entrada_sociedade := CASE 
-                            WHEN s.data_entrada_sociedade ~ '^[0-9]{{8}}$' 
-                            THEN SUBSTRING(s.data_entrada_sociedade, 1, 4) || '-' || 
-                                 SUBSTRING(s.data_entrada_sociedade, 5, 2) || '-' || 
-                                 SUBSTRING(s.data_entrada_sociedade, 7, 2)
-                            ELSE COALESCE(s.data_entrada_sociedade, '')
-                        END,
-                        identificador_socio := CASE s.identificador_socio
-                            WHEN '1' THEN 'Pessoa Jurídica'
-                            WHEN '2' THEN 'Pessoa Física'
-                            WHEN '3' THEN 'Estrangeiro'
-                            ELSE COALESCE(s.identificador_socio, '')
-                        END,
-                        faixa_etaria := CASE s.faixa_etaria
-                            WHEN '0' THEN 'Não se aplica'
-                            WHEN '1' THEN '0 a 12 anos'
-                            WHEN '2' THEN '13 a 20 anos'
-                            WHEN '3' THEN '21 a 30 anos'
-                            WHEN '4' THEN '31 a 40 anos'
-                            WHEN '5' THEN '41 a 50 anos'
-                            WHEN '6' THEN '51 a 60 anos'
-                            WHEN '7' THEN '61 a 70 anos'
-                            WHEN '8' THEN '71 a 80 anos'
-                            WHEN '9' THEN 'Mais de 80 anos'
-                            ELSE COALESCE(s.faixa_etaria, '')
-                        END
-                    )) as qsa_data
-                FROM socio_data s
-                LEFT JOIN qualificacao qs ON s.qualificacao_socio = qs.codigo
-                WHERE s.cnpj_prefix = '{prefixLiteral}'
-                GROUP BY s.cnpj_prefix, s.cnpj_basico
-            )
-            SELECT {selectCols}
-            FROM estabelecimento_data e
-            LEFT JOIN empresa_data emp ON e.cnpj_basico = emp.cnpj_basico
-            LEFT JOIN simples_data s ON e.cnpj_basico = s.cnpj_basico
-            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
-            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
-            LEFT JOIN socios_data sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
-            WHERE e.cnpj_prefix = '{prefixLiteral}'";
-    }
-
-    private string BuildJsonQueryForPrefixBatch(IReadOnlyList<string> prefixes, bool includeCnpjColumn, string jsonAlias)
-    {
-        var jsonFields = GetJsonStructFields();
-        var estabelecimentoRelation = BuildPartitionedReadSql("estabelecimento", prefixes, allowEmpty: false);
-        var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
-        var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
-        var socioRelation = BuildPartitionedReadSql("socio", prefixes, allowEmpty: true);
-        var selectCols = includeCnpjColumn
-            ? "e.cnpj_prefix as shard_prefix, e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv as cnpj, to_json(struct_pack(\n" +
-              jsonFields + $"\n)) as {jsonAlias}"
-            : $"e.cnpj_prefix as shard_prefix, to_json(struct_pack(\n{jsonFields}\n)) as {jsonAlias}";
-
-        return $@"WITH batch_estabelecimentos AS (
-                SELECT * FROM {estabelecimentoRelation}
-            ),
-            batch_empresas AS (
-                SELECT * FROM {empresaRelation}
-            ),
-            batch_simples AS (
-                SELECT * FROM {simplesRelation}
-            ),
-            batch_socios AS (
-                SELECT
-                    s.cnpj_prefix,
-                    s.cnpj_basico,
-                    array_agg(struct_pack(
-                        nome_socio := COALESCE(s.nome_socio, ''),
-                        cnpj_cpf_socio := COALESCE(s.cnpj_cpf_socio, ''),
-                        qualificacao_socio := COALESCE(qs.descricao, ''),
-                        data_entrada_sociedade := CASE
-                            WHEN s.data_entrada_sociedade ~ '^[0-9]{{8}}$'
-                            THEN SUBSTRING(s.data_entrada_sociedade, 1, 4) || '-' ||
-                                 SUBSTRING(s.data_entrada_sociedade, 5, 2) || '-' ||
-                                 SUBSTRING(s.data_entrada_sociedade, 7, 2)
-                            ELSE COALESCE(s.data_entrada_sociedade, '')
-                        END,
-                        identificador_socio := CASE s.identificador_socio
-                            WHEN '1' THEN 'Pessoa Jurídica'
-                            WHEN '2' THEN 'Pessoa Física'
-                            WHEN '3' THEN 'Estrangeiro'
-                            ELSE COALESCE(s.identificador_socio, '')
-                        END,
-                        faixa_etaria := CASE s.faixa_etaria
-                            WHEN '0' THEN 'Não se aplica'
-                            WHEN '1' THEN '0 a 12 anos'
-                            WHEN '2' THEN '13 a 20 anos'
-                            WHEN '3' THEN '21 a 30 anos'
-                            WHEN '4' THEN '31 a 40 anos'
-                            WHEN '5' THEN '41 a 50 anos'
-                            WHEN '6' THEN '51 a 60 anos'
-                            WHEN '7' THEN '61 a 70 anos'
-                            WHEN '8' THEN '71 a 80 anos'
-                            WHEN '9' THEN 'Mais de 80 anos'
-                            ELSE COALESCE(s.faixa_etaria, '')
-                        END
-                    )) AS qsa_data
-                FROM {socioRelation} s
-                LEFT JOIN qualificacao qs ON s.qualificacao_socio = qs.codigo
-                GROUP BY s.cnpj_prefix, s.cnpj_basico
-            )
-            SELECT {selectCols}
-            FROM batch_estabelecimentos e
-            LEFT JOIN batch_empresas emp ON e.cnpj_basico = emp.cnpj_basico
-            LEFT JOIN batch_simples s ON e.cnpj_basico = s.cnpj_basico
-            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
-            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
-            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
-            ORDER BY e.cnpj_prefix, cnpj";
-    }
-
-    private string BuildJsonQueryForCnpj(string prefixStr, string cnpjBasico, string cnpjOrdem, string cnpjDv, string jsonAlias)
-    {
-        var jsonFields = GetJsonStructFields();
-        var prefixLiteral = EscapeSqlLiteral(prefixStr);
-        var cnpjBasicoLiteral = EscapeSqlLiteral(cnpjBasico);
-        var cnpjOrdemLiteral = EscapeSqlLiteral(cnpjOrdem);
-        var cnpjDvLiteral = EscapeSqlLiteral(cnpjDv);
-        var prefixes = new[] { prefixStr };
-        var estabelecimentoRelation = BuildPartitionedReadSql("estabelecimento", prefixes, allowEmpty: false);
-        var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
-        var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
-        var socioRelation = BuildPartitionedReadSql("socio", prefixes, allowEmpty: true);
-        var selectCols = $"to_json(struct_pack(\n" + jsonFields + $"\n)) as {jsonAlias}";
-
-        return $@"WITH estabelecimento_data AS (
-                SELECT * FROM {estabelecimentoRelation}
-            ),
-            empresa_data AS (
-                SELECT * FROM {empresaRelation}
-            ),
-            simples_data AS (
-                SELECT * FROM {simplesRelation}
-            ),
-            socio_data AS (
-                SELECT * FROM {socioRelation}
-            ),
-            socios_data AS (
-                SELECT 
-                    s.cnpj_prefix,
-                    s.cnpj_basico,
-                    array_agg(struct_pack(
-                        nome_socio := COALESCE(s.nome_socio, ''),
-                        cnpj_cpf_socio := COALESCE(s.cnpj_cpf_socio, ''),
-                        qualificacao_socio := COALESCE(qs.descricao, ''),
-                        data_entrada_sociedade := CASE 
-                            WHEN s.data_entrada_sociedade ~ '^[0-9]{{8}}$' 
-                            THEN SUBSTRING(s.data_entrada_sociedade, 1, 4) || '-' || 
-                                 SUBSTRING(s.data_entrada_sociedade, 5, 2) || '-' || 
-                                 SUBSTRING(s.data_entrada_sociedade, 7, 2)
-                            ELSE COALESCE(s.data_entrada_sociedade, '')
-                        END,
-                        identificador_socio := CASE s.identificador_socio
-                            WHEN '1' THEN 'Pessoa Jurídica'
-                            WHEN '2' THEN 'Pessoa Física'
-                            WHEN '3' THEN 'Estrangeiro'
-                            ELSE COALESCE(s.identificador_socio, '')
-                        END,
-                        faixa_etaria := CASE s.faixa_etaria
-                            WHEN '0' THEN 'Não se aplica'
-                            WHEN '1' THEN '0 a 12 anos'
-                            WHEN '2' THEN '13 a 20 anos'
-                            WHEN '3' THEN '21 a 30 anos'
-                            WHEN '4' THEN '31 a 40 anos'
-                            WHEN '5' THEN '41 a 50 anos'
-                            WHEN '6' THEN '51 a 60 anos'
-                            WHEN '7' THEN '61 a 70 anos'
-                            WHEN '8' THEN '71 a 80 anos'
-                            WHEN '9' THEN 'Mais de 80 anos'
-                            ELSE COALESCE(s.faixa_etaria, '')
-                        END
-                    )) as qsa_data
-                FROM socio_data s
-                LEFT JOIN qualificacao qs ON s.qualificacao_socio = qs.codigo
-                WHERE s.cnpj_prefix = '{prefixLiteral}'
-                GROUP BY s.cnpj_prefix, s.cnpj_basico
-            )
-            SELECT {selectCols}
-            FROM estabelecimento_data e
-            LEFT JOIN empresa_data emp ON e.cnpj_basico = emp.cnpj_basico
-            LEFT JOIN simples_data s ON e.cnpj_basico = s.cnpj_basico
-            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
-            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
-            LEFT JOIN socios_data sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
-            WHERE e.cnpj_prefix = '{prefixLiteral}'
-              AND e.cnpj_basico = '{cnpjBasicoLiteral}'
-              AND e.cnpj_ordem = '{cnpjOrdemLiteral}'
-              AND e.cnpj_dv = '{cnpjDvLiteral}'";
     }
 
     public void Dispose()

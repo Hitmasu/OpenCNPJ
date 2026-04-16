@@ -1,42 +1,38 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Xml.Linq;
-using CNPJExporter.Configuration;
-using CNPJExporter.Utils;
+using CNPJExporter.Modules.Receita.Models;
 using Spectre.Console;
 
-namespace CNPJExporter.Downloaders;
+namespace CNPJExporter.Modules.Receita.Downloaders;
 
-public sealed record DavEntry(
-    string Name,
-    Uri Uri,
-    bool IsCollection,
-    long? ContentLength,
-    string? ContentType,
-    string? ETag,
-    DateTimeOffset? LastModified);
-
-public class WebDownloader
+public class Downloader
 {
     private static readonly HttpMethod PropfindMethod = new("PROPFIND");
 
     private readonly string _downloadRootDir;
     private readonly string _extractRootDir;
     private readonly Uri _shareRoot;
+    private readonly int _parallelDownloads;
     private readonly HttpClient _http;
 
-    public WebDownloader(string downloadDir, string extractDir)
+    public Downloader(
+        string downloadDir,
+        string extractDir,
+        string publicShareRoot,
+        int parallelDownloads)
     {
         _downloadRootDir = downloadDir;
         _extractRootDir = extractDir;
+        _parallelDownloads = Math.Max(1, parallelDownloads);
         Directory.CreateDirectory(_downloadRootDir);
         Directory.CreateDirectory(_extractRootDir);
 
-        var configuredRoot = AppConfig.Current.Downloader.PublicShareRoot;
-        if (string.IsNullOrWhiteSpace(configuredRoot))
+        if (string.IsNullOrWhiteSpace(publicShareRoot))
             throw new InvalidOperationException("Downloader.PublicShareRoot não foi configurado.");
 
-        _shareRoot = new(configuredRoot.EndsWith('/') ? configuredRoot : configuredRoot + "/");
+        _shareRoot = new(publicShareRoot.EndsWith('/') ? publicShareRoot : publicShareRoot + "/");
 
         _http = new()
         {
@@ -49,14 +45,14 @@ public class WebDownloader
     {
         var monthEntries = await ListDirectoryAsync(_shareRoot, ct);
         return monthEntries
-            .Where(x => x.IsCollection && DatasetPathResolver.IsDatasetKey(x.Name))
+            .Where(x => x.IsCollection && IsDatasetKey(x.Name))
             .Select(x => x.Name)
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToList();
     }
 
     public async Task<string> DownloadAndExtractAsync(
-        string? requestedMonth,
+        string selectedMonth,
         IReadOnlyCollection<string>? availableMonths = null,
         CancellationToken ct = default)
     {
@@ -65,13 +61,10 @@ public class WebDownloader
         if (availableMonths.Count == 0)
             throw new InvalidOperationException("Nenhuma pasta mensal encontrada no compartilhamento público da Receita.");
 
-        if (!DatasetPublicationPolicy.TrySelectMonthToProcess(requestedMonth, availableMonths, out var selectedMonth, out var latestAvailableMonth))
-        {
-            throw new InvalidOperationException(
-                $"Nenhuma base nova para processar. Último mês disponível na Receita: {latestAvailableMonth}. Mês atual esperado: {DatasetPublicationPolicy.GetCurrentMonth()}.");
-        }
+        if (string.IsNullOrWhiteSpace(selectedMonth) || !availableMonths.Contains(selectedMonth, StringComparer.Ordinal))
+            throw new InvalidOperationException($"Mês {selectedMonth} não encontrado no compartilhamento público da Receita.");
 
-        var resolvedMonth = selectedMonth!;
+        var resolvedMonth = selectedMonth;
         var monthUri = new Uri(_shareRoot, $"{resolvedMonth}/");
         var zipEntries = await ListDirectoryAsync(monthUri, ct);
         var zipFiles = zipEntries
@@ -214,7 +207,7 @@ public class WebDownloader
                     toDownload,
                     new ParallelOptions
                     {
-                        MaxDegreeOfParallelism = Math.Max(1, AppConfig.Current.Downloader.ParallelDownloads),
+                        MaxDegreeOfParallelism = _parallelDownloads,
                         CancellationToken = ct
                     },
                     async (item, token) =>
@@ -330,5 +323,15 @@ public class WebDownloader
 
         await File.WriteAllTextAsync(markerPath, DateTimeOffset.UtcNow.ToString("O"), ct);
         AnsiConsole.MarkupLine($"[green]✓ Extração concluída em {Path.GetFullPath(targetDir)}[/]");
+    }
+
+    private static bool IsDatasetKey(string value)
+    {
+        return DateTime.TryParseExact(
+            value,
+            "yyyy-MM",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out _);
     }
 }
