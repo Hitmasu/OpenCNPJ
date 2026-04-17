@@ -4,6 +4,7 @@ import { clearHotCaches } from "./cache.ts";
 import { resolveDatasetSelection } from "./datasets.ts";
 import { setEmbeddedRuntimeInfoForTest } from "./generated-runtime-info.ts";
 import { handleCachedJson, corsPreflight, jsonError, jsonOk } from "./http.ts";
+import { CNPJ_RESPONSE_SCHEMA } from "./schema.ts";
 import { buildRecordCacheKey, getShardPrefix, loadDatasetsFromShard, loadInfo, loadRuntimeInfo } from "./storage.ts";
 import type { RuntimeInfo } from "./types.ts";
 import type { Env } from "./types.ts";
@@ -30,6 +31,11 @@ export default {
           return jsonError(502, "info load failed");
         }
       });
+    }
+
+    if (pathname === "/schema") {
+      return handleCachedJson("https://cache.opencnpj/schema", ctx, async () =>
+        jsonOk(CNPJ_RESPONSE_SCHEMA));
     }
 
     const cnpj = extractCnpjFromPath(pathname);
