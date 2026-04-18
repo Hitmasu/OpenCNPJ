@@ -40,4 +40,4 @@ COPY . .
 RUN chmod +x /app/src/scripts/deploy.sh /app/src/scripts/docker-entrypoint.sh \
     && dotnet restore /app/src/ETL/Processor/CNPJExporter.csproj
 
-CMD ["/app/src/scripts/docker-entrypoint.sh"]
+ENTRYPOINT ["/app/src/scripts/docker-entrypoint.sh"]
