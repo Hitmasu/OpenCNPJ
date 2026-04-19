@@ -30,6 +30,13 @@ export function jsonOk(data: unknown): Response {
   });
 }
 
+export function jsonOkNoStore(data: unknown): Response {
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers: NO_STORE_HEADERS,
+  });
+}
+
 export function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
@@ -48,4 +55,3 @@ export function corsPreflight(): Response {
     },
   });
 }
-

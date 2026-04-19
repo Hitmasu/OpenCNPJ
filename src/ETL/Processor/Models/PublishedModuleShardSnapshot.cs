@@ -7,6 +7,4 @@ internal sealed record PublishedModuleShardSnapshot(
     string? SourceVersion,
     DateTimeOffset UpdatedAt,
     long RecordCount,
-    string StorageReleaseId,
-    string DefaultShardReleaseId,
-    IReadOnlyDictionary<string, string> ShardReleases);
+    string StorageReleaseId);

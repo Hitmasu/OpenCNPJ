@@ -112,9 +112,9 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
             return NoWork(currentMonth);
 
         if (!receitaChanged
-            && string.IsNullOrWhiteSpace(publishedInfo?.DefaultShardReleaseId ?? publishedInfo?.StorageReleaseId))
+            && string.IsNullOrWhiteSpace(publishedInfo?.StorageReleaseId))
         {
-            throw new InvalidOperationException("Publicação incremental exige um release anterior publicado no info.json.");
+            throw new InvalidOperationException("Publicação de módulos exige um release base anterior publicado no info.json.");
         }
 
         using (var ingestor = new ParquetIngestor(selectedMonth))
@@ -136,7 +136,7 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
             }
             else
             {
-                AnsiConsole.MarkupLine($"[cyan]4/{totalSteps} Publicando apenas shards de módulos alterados ({releaseId})...[/]");
+                AnsiConsole.MarkupLine($"[cyan]4/{totalSteps} Publicando módulos alterados com shards completos ({releaseId})...[/]");
             }
 
             var moduleShards = await new ModuleShardPublisher().PublishAsync(
@@ -243,18 +243,16 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                 AppConfig.Current.Shards.PrefixLength,
                 releaseId,
                 releaseId,
-                releaseId,
-                new Dictionary<string, string>(StringComparer.Ordinal),
                 integrationSummaries,
                 moduleShards);
         }
 
-        var storageReleaseId = publishedInfo?.StorageReleaseId ?? publishedInfo?.DefaultShardReleaseId;
+        var storageReleaseId = publishedInfo?.StorageReleaseId;
         if (string.IsNullOrWhiteSpace(storageReleaseId)
             || publishedInfo?.Total is null
             || publishedInfo.ShardCount is null)
         {
-            throw new InvalidOperationException("Publicação incremental exige total, shard_count e release base anterior no info.json.");
+            throw new InvalidOperationException("Publicação de módulos exige total, shard_count e release base anterior no info.json.");
         }
 
         return new ReleaseInfoPublication(
@@ -266,8 +264,6 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
             AppConfig.Current.Shards.PrefixLength,
             storageReleaseId,
             releaseId,
-            publishedInfo.DefaultShardReleaseId ?? storageReleaseId,
-            publishedInfo.ShardReleases,
             integrationSummaries,
             moduleShards);
     }

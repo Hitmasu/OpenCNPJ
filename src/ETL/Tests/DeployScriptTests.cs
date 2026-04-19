@@ -110,7 +110,7 @@ public sealed class DeployScriptTests
     }
 
     [TestMethod]
-    public void ValidateEndpoint_ShouldAcceptModuleOnlyRelease()
+    public void ValidateEndpoint_ShouldAcceptModuleReleaseFromDatasets()
     {
         var script = File.ReadAllText(FindDeployScript());
         var validateFunctionIndex = script.IndexOf("validate_endpoint()", StringComparison.Ordinal);
@@ -122,11 +122,17 @@ public sealed class DeployScriptTests
             validateFunction = validateFunction[..nextFunctionIndex];
 
         Assert.IsTrue(
+            validateFunction.Contains("info?.datasets", StringComparison.Ordinal),
+            "validate_endpoint must accept module releases from the canonical datasets map.");
+        Assert.IsFalse(
             validateFunction.Contains("module_shards", StringComparison.Ordinal),
-            "validate_endpoint must accept releases published only under module_shards.");
+            "validate_endpoint must not depend on the removed module_shards map.");
         Assert.IsTrue(
             validateFunction.Contains("releaseMatches", StringComparison.Ordinal),
             "validate_endpoint must validate the requested release against base and module release references.");
+        Assert.IsTrue(
+            validateFunction.Contains("OPENCNPJ_VALIDATE_RETRIES", StringComparison.Ordinal),
+            "validate_endpoint must retry semantic validation while Worker/cache propagation settles.");
     }
 
     [TestMethod]

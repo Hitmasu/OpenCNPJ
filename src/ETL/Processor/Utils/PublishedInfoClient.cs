@@ -32,39 +32,25 @@ internal sealed class PublishedInfoClient
         var shardCount = TryGetInt(root, "shard_count");
         var lastUpdated = TryGetString(root, "last_updated");
         var storageReleaseId = TryGetString(root, "storage_release_id");
-        var defaultShardReleaseId = TryGetString(root, "default_shard_release_id") ?? storageReleaseId;
-        var shardReleases = new Dictionary<string, string>(StringComparer.Ordinal);
         var moduleShards = new Dictionary<string, PublishedModuleShardSnapshot>(StringComparer.Ordinal);
 
-        if (root.TryGetProperty("shard_releases", out var shardReleasesElement)
-            && shardReleasesElement.ValueKind == JsonValueKind.Object)
+        if (root.TryGetProperty("datasets", out var datasetsElement)
+            && datasetsElement.ValueKind == JsonValueKind.Object)
         {
-            ReadReleaseMap(shardReleasesElement, shardReleases);
-        }
-
-        if (root.TryGetProperty("module_shards", out var moduleShardsElement)
-            && moduleShardsElement.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var moduleProperty in moduleShardsElement.EnumerateObject())
+            foreach (var moduleProperty in datasetsElement.EnumerateObject())
             {
+                if (string.Equals(moduleProperty.Name, "receita", StringComparison.Ordinal))
+                    continue;
+
                 if (moduleProperty.Value.ValueKind != JsonValueKind.Object)
                     continue;
 
                 var moduleElement = moduleProperty.Value;
                 var moduleStorageReleaseId = TryGetString(moduleElement, "storage_release_id");
-                var moduleDefaultShardReleaseId = TryGetString(moduleElement, "default_shard_release_id") ?? moduleStorageReleaseId;
 
-                if (string.IsNullOrWhiteSpace(moduleStorageReleaseId)
-                    || string.IsNullOrWhiteSpace(moduleDefaultShardReleaseId))
+                if (string.IsNullOrWhiteSpace(moduleStorageReleaseId))
                 {
                     continue;
-                }
-
-                var moduleReleaseMap = new Dictionary<string, string>(StringComparer.Ordinal);
-                if (moduleElement.TryGetProperty("shard_releases", out var moduleShardReleasesElement)
-                    && moduleShardReleasesElement.ValueKind == JsonValueKind.Object)
-                {
-                    ReadReleaseMap(moduleShardReleasesElement, moduleReleaseMap);
                 }
 
                 moduleShards[moduleProperty.Name] = new PublishedModuleShardSnapshot(
@@ -74,9 +60,7 @@ internal sealed class PublishedInfoClient
                     TryGetString(moduleElement, "source_version"),
                     TryGetDateTimeOffset(moduleElement, "updated_at") ?? DateTimeOffset.MinValue,
                     TryGetLong(moduleElement, "record_count") ?? 0,
-                    moduleStorageReleaseId,
-                    moduleDefaultShardReleaseId,
-                    moduleReleaseMap);
+                    moduleStorageReleaseId);
             }
         }
 
@@ -85,8 +69,6 @@ internal sealed class PublishedInfoClient
             shardCount,
             lastUpdated,
             storageReleaseId,
-            defaultShardReleaseId,
-            shardReleases,
             moduleShards);
     }
 
@@ -146,16 +128,4 @@ internal sealed class PublishedInfoClient
         return dateTimeOffset;
     }
 
-    private static void ReadReleaseMap(JsonElement element, IDictionary<string, string> target)
-    {
-        foreach (var property in element.EnumerateObject())
-        {
-            if (property.Value.ValueKind != JsonValueKind.String)
-                continue;
-
-            var releaseId = property.Value.GetString();
-            if (!string.IsNullOrWhiteSpace(releaseId))
-                target[property.Name] = releaseId;
-        }
-    }
 }

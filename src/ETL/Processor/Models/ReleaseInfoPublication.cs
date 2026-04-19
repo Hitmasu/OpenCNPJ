@@ -11,7 +11,5 @@ internal sealed record ReleaseInfoPublication(
     int ShardPrefixLength,
     string StorageReleaseId,
     string PublicationReleaseId,
-    string DefaultShardReleaseId,
-    IReadOnlyDictionary<string, string> ShardReleases,
     IReadOnlyList<DataIntegrationRunSummary> IntegrationSummaries,
     IReadOnlyDictionary<string, ModuleShardPublication> ModuleShards);

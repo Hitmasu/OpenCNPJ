@@ -22,14 +22,12 @@ export default {
     const pathname = url.pathname.replace(/\/+$/, "");
 
     if (pathname === "/info") {
-      return handleCachedJson("https://cache.opencnpj/info", ctx, async () => {
-        try {
-          return await loadInfo(env);
-        } catch (error) {
-          console.error("info load failed", error);
-          return jsonError(502, "info load failed");
-        }
-      });
+      try {
+        return await loadInfo(env);
+      } catch (error) {
+        console.error("info load failed", error);
+        return jsonError(502, "info load failed");
+      }
     }
 
     const cnpj = extractCnpjFromPath(pathname);

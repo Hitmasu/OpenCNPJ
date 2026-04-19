@@ -2,14 +2,19 @@ import { getHotChunk, getHotIndex, getHotRuntimeInfo, rememberHotChunk, remember
 import { parseBinaryShardIndex, findBinaryIndexEntry } from "./binary-index.ts";
 import { createStageError } from "./errors.ts";
 import { getEmbeddedRuntimeInfo, hasEmbeddedRuntimeInfo } from "./generated-runtime-info.ts";
-import { jsonError, jsonOk } from "./http.ts";
+import { jsonError, jsonOk, jsonOkNoStore } from "./http.ts";
 import { R2_PUBLIC_ROOT, SHARD_PREFIX_LENGTH } from "./constants.ts";
-import type { BinaryShardIndex, DatasetSelection, Env, ModuleShardInfo, RuntimeInfo } from "./types.ts";
+import type { BinaryShardIndex, DatasetInfo, DatasetSelection, Env, RuntimeInfo } from "./types.ts";
 
 export async function loadInfo(env: Env): Promise<Response> {
+  const embedded = getEmbeddedRuntimeInfo();
+  if (embedded) {
+    return jsonOkNoStore(embedded);
+  }
+
   const runtimeInfo = await loadRuntimeInfo(env);
   if (runtimeInfo) {
-    return jsonOk(runtimeInfo);
+    return jsonOkNoStore(runtimeInfo);
   }
 
   return loadJsonFromR2(env.CNPJ_BUCKET, buildR2Key("info.json"));
@@ -30,7 +35,7 @@ export async function loadRecordFromShard(
     cnpj,
     {
       includeReceita: true,
-      moduleKeys: Object.keys(resolvedRuntimeInfo?.module_shards ?? {}),
+      moduleKeys: getModuleDatasetKeys(resolvedRuntimeInfo),
       cacheKey: "all",
     },
     resolvedRuntimeInfo);
@@ -103,7 +108,7 @@ export function buildRecordCacheKey(
     ? resolveShardReleaseId(runtimeInfo, prefix) ?? "assets"
     : "none";
   const moduleVersions = selection.moduleKeys
-    .map(key => `${key}:${resolveModuleShardReleaseId(runtimeInfo?.module_shards?.[key], prefix) ?? "none"}`)
+    .map(key => `${key}:${resolveModuleShardReleaseId(runtimeInfo?.datasets?.[key], prefix) ?? "none"}`)
     .join(",");
 
   return `https://cache.opencnpj/cnpj/${cnpj}?datasets=${encodeURIComponent(selection.cacheKey)}&v=${encodeURIComponent(`${baseRelease}|${moduleVersions}`)}`;
@@ -355,16 +360,17 @@ function buildAssetPath(relativeKey: string): string {
   return `/${R2_PUBLIC_ROOT}/${relativeKey}`.replace(/\/{2,}/g, "/");
 }
 
-function resolveShardReleaseId(runtimeInfo: RuntimeInfo | null, prefix: string): string | undefined {
-  return runtimeInfo?.shard_releases?.[prefix]
-    ?? runtimeInfo?.default_shard_release_id
-    ?? runtimeInfo?.storage_release_id;
+function resolveShardReleaseId(runtimeInfo: RuntimeInfo | null, _prefix: string): string | undefined {
+  return runtimeInfo?.storage_release_id;
 }
 
-function resolveModuleShardReleaseId(moduleInfo: ModuleShardInfo | undefined, prefix: string): string | undefined {
-  return moduleInfo?.shard_releases?.[prefix]
-    ?? moduleInfo?.default_shard_release_id
-    ?? moduleInfo?.storage_release_id;
+function resolveModuleShardReleaseId(moduleInfo: DatasetInfo | undefined, _prefix: string): string | undefined {
+  return moduleInfo?.storage_release_id;
+}
+
+function getModuleDatasetKeys(runtimeInfo: RuntimeInfo | null): string[] {
+  return Object.keys(runtimeInfo?.datasets ?? {})
+    .filter(key => key !== "receita");
 }
 
 async function applyModuleShards(
@@ -378,7 +384,7 @@ async function applyModuleShards(
   preferAssetIndexes: boolean,
 ): Promise<void> {
   const results = await Promise.all(moduleKeys.map(async moduleKey => {
-    const moduleInfo = runtimeInfo?.module_shards?.[moduleKey];
+    const moduleInfo = runtimeInfo?.datasets?.[moduleKey];
     const propertyName = moduleInfo?.json_property_name || moduleKey;
     const releaseId = resolveModuleShardReleaseId(moduleInfo, prefix);
     if (!releaseId) {
@@ -433,11 +439,11 @@ function buildShardIndexPath(prefix: string, releaseId: string): string {
 }
 
 function buildModuleShardDataPath(moduleKey: string, prefix: string, releaseId: string): string {
-  return `shards/modules/${moduleKey}/releases/${releaseId}/${prefix}.ndjson`;
+  return `shards/modules/${moduleKey}/${releaseId}/${prefix}.ndjson`;
 }
 
 function buildModuleShardIndexPath(moduleKey: string, prefix: string, releaseId: string): string {
-  return `shards/modules/${moduleKey}/releases/${releaseId}/${prefix}.index.bin`;
+  return `shards/modules/${moduleKey}/${releaseId}/${prefix}.index.bin`;
 }
 
 function parseExactNdjsonRecord(chunk: string, cnpj: string, key: string): Record<string, unknown> | null {

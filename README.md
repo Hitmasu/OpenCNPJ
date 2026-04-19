@@ -56,7 +56,7 @@ Sem `-m`, o pipeline escolhe o mês mais recente publicado no share WebDAV da Re
 - A API publicada consome os `*.ndjson` e `*.index.bin` do release ativo no R2, onde `prefix` usa os 3 primeiros caracteres do CNPJ normalizado.
 - Cada linha do `*.ndjson` representa um CNPJ e o `*.index.bin` guarda `offset` e `length` exatos para leitura direta no Worker.
 - O contrato de CNPJ já aceita formato alfanumérico: 12 caracteres alfanuméricos + 2 dígitos finais.
-- O arquivo `info.json` continua sendo publicado, agora com metadados do release ativo, `default_shard_release_id`, `shard_releases` por prefixo alterado e `sources` por origem de dados.
+- O arquivo `info.json` continua sendo publicado com metadados do release ativo, `storage_release_id` e o mapa `datasets` para a base Receita e módulos.
 
 ## Deploy
 

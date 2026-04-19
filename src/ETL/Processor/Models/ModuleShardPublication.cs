@@ -7,9 +7,7 @@ internal sealed record ModuleShardPublication(
     string? SourceVersion,
     DateTimeOffset UpdatedAt,
     long RecordCount,
-    string StorageReleaseId,
-    string DefaultShardReleaseId,
-    IReadOnlyDictionary<string, string> ShardReleases)
+    string StorageReleaseId)
 {
     public static ModuleShardPublication FromPublished(PublishedModuleShardSnapshot snapshot) =>
         new(
@@ -19,7 +17,5 @@ internal sealed record ModuleShardPublication(
             snapshot.SourceVersion,
             snapshot.UpdatedAt,
             snapshot.RecordCount,
-            snapshot.StorageReleaseId,
-            snapshot.DefaultShardReleaseId,
-            snapshot.ShardReleases);
+            snapshot.StorageReleaseId);
 }
