@@ -77,6 +77,19 @@ require_command node
 require_command dotnet
 require_command npx
 require_command base64
+
+if [[ -z "${CLOUDFLARE_API_TOKEN:-}" && -n "${CF_API_TOKEN:-}" ]]; then
+  export CLOUDFLARE_API_TOKEN="$CF_API_TOKEN"
+fi
+
+if [[ -z "${CLOUDFLARE_ACCOUNT_ID:-}" && -n "${CF_ACCOUNT_ID:-}" ]]; then
+  export CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT_ID"
+fi
+
+if [[ -z "${CLOUDFLARE_ZONE_ID:-}" && -n "${CF_ZONE_ID:-}" ]]; then
+  export CLOUDFLARE_ZONE_ID="$CF_ZONE_ID"
+fi
+
 require_env CLOUDFLARE_API_TOKEN
 
 TMP_RCLONE_CONFIG=""

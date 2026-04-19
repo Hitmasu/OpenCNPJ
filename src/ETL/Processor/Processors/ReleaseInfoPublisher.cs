@@ -27,15 +27,11 @@ internal sealed class ReleaseInfoPublisher
             shard_prefix_length = publication.ShardPrefixLength,
             shard_count = publication.ShardCount,
             storage_release_id = publication.StorageReleaseId,
-            default_shard_release_id = publication.DefaultShardReleaseId,
-            shard_releases = publication.ShardReleases,
             datasets = BuildDatasetsInfo(publication),
-            module_shards = BuildModuleShardInfo(publication.ModuleShards),
             shard_index_distribution = "r2",
             shard_format = "ndjson+binary-index",
             zip_layout = "disabled",
-            cnpj_type = "string",
-            sources = BuildInfoSources(publication)
+            cnpj_type = "string"
         };
 
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
@@ -60,24 +56,6 @@ internal sealed class ReleaseInfoPublisher
         AnsiConsole.MarkupLine("[green]✓ info.json enviado para Storage[/]");
     }
 
-    private static object BuildModuleShardInfo(IReadOnlyDictionary<string, ModuleShardPublication> moduleShards)
-    {
-        return moduleShards.ToDictionary(
-            kvp => kvp.Key,
-            kvp => new
-            {
-                json_property_name = kvp.Value.JsonPropertyName,
-                storage_release_id = kvp.Value.StorageReleaseId,
-                default_shard_release_id = kvp.Value.DefaultShardReleaseId,
-                shard_releases = kvp.Value.ShardReleases,
-                schema_version = kvp.Value.SchemaVersion,
-                source_version = kvp.Value.SourceVersion,
-                updated_at = kvp.Value.UpdatedAt.ToString("o"),
-                record_count = kvp.Value.RecordCount
-            },
-            StringComparer.Ordinal);
-    }
-
     private static object BuildDatasetsInfo(ReleaseInfoPublication publication)
     {
         var datasets = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -85,8 +63,6 @@ internal sealed class ReleaseInfoPublisher
             [publication.ReceitaDatasetKey] = new
             {
                 storage_release_id = publication.StorageReleaseId,
-                default_shard_release_id = publication.DefaultShardReleaseId,
-                shard_releases = publication.ShardReleases,
                 updated_at = publication.LastUpdated,
                 record_count = publication.Total
             }
@@ -98,8 +74,6 @@ internal sealed class ReleaseInfoPublisher
             {
                 json_property_name = module.JsonPropertyName,
                 storage_release_id = module.StorageReleaseId,
-                default_shard_release_id = module.DefaultShardReleaseId,
-                shard_releases = module.ShardReleases,
                 schema_version = module.SchemaVersion,
                 source_version = module.SourceVersion,
                 updated_at = module.UpdatedAt.ToString("o"),
@@ -108,29 +82,5 @@ internal sealed class ReleaseInfoPublisher
         }
 
         return datasets;
-    }
-
-    private static object BuildInfoSources(ReleaseInfoPublication publication)
-    {
-        return new
-        {
-            receita = new
-            {
-                dataset_key = publication.DatasetKey,
-                updated_at = publication.LastUpdated
-            },
-            integrations = publication.IntegrationSummaries.ToDictionary(
-                summary => summary.Descriptor.Key,
-                summary => new
-                {
-                    updated_at = summary.UpdatedAt.ToString("o"),
-                    source_version = summary.SourceVersion,
-                    schema_version = summary.Descriptor.SchemaVersion,
-                    record_count = summary.RecordCount,
-                    changed_cnpj_count = summary.ChangedCnpjs.Count,
-                    json_property_name = summary.Descriptor.JsonPropertyName
-                },
-                StringComparer.Ordinal)
-        };
     }
 }

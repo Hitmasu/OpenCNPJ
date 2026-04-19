@@ -5,7 +5,7 @@ Worker Cloudflare que lê os índices binários publicados como Static Assets e 
 ## Estrutura
 
 - `GET /info` lê `files/info.json` dos Static Assets do Worker, com fallback para R2.
-- `GET /{cnpj}` normaliza o CNPJ para formato canônico, calcula o shard por prefixo de 3 caracteres, resolve o release pelo `shard_releases[prefix]`, `default_shard_release_id` ou `storage_release_id`, tenta ler o índice binário no R2 em `files/shards/releases/{release}/{prefix}.index.bin` e, se não existir, cai para o asset legado `files/shards/{prefix}.index.bin`; depois busca o `*.ndjson` do mesmo release no R2.
+- `GET /{cnpj}` normaliza o CNPJ para formato canônico, calcula o shard por prefixo de 3 caracteres, resolve o release por `storage_release_id`, tenta ler o índice binário no R2 em `files/shards/releases/{release}/{prefix}.index.bin` e, se não existir, cai para o asset legado `files/shards/{prefix}.index.bin`; depois busca o `*.ndjson` do mesmo release no R2.
 - `OPTIONS` responde com CORS permissivo.
 
 ## Comportamento

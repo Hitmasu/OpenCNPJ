@@ -9,7 +9,8 @@ export type DatasetSelectionResult =
 
 export function resolveDatasetSelection(searchParams: URLSearchParams, runtimeInfo: RuntimeInfo | null): DatasetSelectionResult {
   const availableModuleKeys = Object
-    .keys(runtimeInfo?.module_shards ?? {})
+    .keys(runtimeInfo?.datasets ?? {})
+    .filter(key => key !== RECEITA_DATASET_KEY)
     .sort((left, right) => left.localeCompare(right));
   const requestedKeys = parseRequestedDatasetKeys(searchParams);
 

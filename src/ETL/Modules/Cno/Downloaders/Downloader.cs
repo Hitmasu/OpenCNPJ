@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
 using CNPJExporter.Modules.Cno.Configuration;
@@ -54,10 +56,13 @@ public sealed class Downloader
             var eTag = prop.Element(dav + "getetag")?.Value?.Trim('"');
             var length = TryParseLong(prop.Element(dav + "getcontentlength")?.Value);
             var lastModified = TryParseDate(prop.Element(dav + "getlastmodified")?.Value);
+            var sourceVersionSeed = string.IsNullOrWhiteSpace(eTag)
+                ? $"{sourceRoot}|{name}|{lastModified?.ToString("O", CultureInfo.InvariantCulture) ?? "unknown"}|{length?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}"
+                : eTag;
             return new SourceFile(
                 new Uri(sourceRoot, name),
                 name,
-                string.IsNullOrWhiteSpace(eTag) ? lastModified?.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) ?? "unknown" : eTag,
+                NormalizeSourceVersion(sourceVersionSeed),
                 length,
                 lastModified);
         }
@@ -171,6 +176,18 @@ public sealed class Downloader
 
     private static DateTimeOffset? TryParseDate(string? value) =>
         DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed) ? parsed : null;
+
+    private static string NormalizeSourceVersion(string value)
+    {
+        var normalized = value.Trim().Trim('"').ToLowerInvariant();
+        if ((normalized.Length is 32 or 40 or 64)
+            && normalized.All(Uri.IsHexDigit))
+        {
+            return normalized;
+        }
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+    }
 
     private sealed record SourceFileMetadata(
         string SourceVersion,
