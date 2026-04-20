@@ -1,10 +1,16 @@
-import { SHARD_PREFIX_LENGTH } from "./constants.ts";
+import { CACHE_TTL_SECONDS, JSON_HEADERS, SHARD_PREFIX_LENGTH } from "./constants.ts";
 import { extractCnpjFromPath, normalizeCnpj } from "./cnpj.ts";
 import { clearHotCaches } from "./cache.ts";
 import { resolveDatasetSelection } from "./datasets.ts";
 import { setEmbeddedRuntimeInfoForTest } from "./generated-runtime-info.ts";
 import { handleCachedJson, corsPreflight, jsonError, jsonOk } from "./http.ts";
 import { CNPJ_RESPONSE_SCHEMA } from "./schema.ts";
+
+const SCHEMA_RESPONSE_BODY = JSON.stringify(CNPJ_RESPONSE_SCHEMA);
+const SCHEMA_RESPONSE_HEADERS = {
+  ...JSON_HEADERS,
+  "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}, s-maxage=${CACHE_TTL_SECONDS}`,
+};
 import { buildRecordCacheKey, getShardPrefix, loadDatasetsFromShard, loadInfo, loadRuntimeInfo } from "./storage.ts";
 import type { RuntimeInfo } from "./types.ts";
 import type { Env } from "./types.ts";
@@ -34,8 +40,10 @@ export default {
     }
 
     if (pathname === "/schema") {
-      return handleCachedJson("https://cache.opencnpj/schema", ctx, async () =>
-        jsonOk(CNPJ_RESPONSE_SCHEMA));
+      return new Response(SCHEMA_RESPONSE_BODY, {
+        status: 200,
+        headers: SCHEMA_RESPONSE_HEADERS,
+      });
     }
 
     const cnpj = extractCnpjFromPath(pathname);
