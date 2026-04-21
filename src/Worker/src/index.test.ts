@@ -223,18 +223,14 @@ test("fetch returns a record using binary index and exact R2 range read", async 
   ]);
 });
 
-test("fetch resolves per-prefix release overrides", async () => {
+test("fetch resolves release from storage_release_id", async () => {
   const fixture = createLookupFixture();
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
-      storage_release_id: "release-current",
-      default_shard_release_id: "release-base",
-      shard_releases: {
-        "000": "release-override",
-      },
+      storage_release_id: "release-current"
     }),
-    "files/shards/releases/release-override/000.index.bin": fixture.index,
-    "files/shards/releases/release-override/000.ndjson": fixture.ndjson,
+    "files/shards/releases/release-current/000.index.bin": fixture.index,
+    "files/shards/releases/release-current/000.ndjson": fixture.ndjson,
   });
   const assets = new FakeAssetsFetcher({});
 
@@ -255,11 +251,11 @@ test("fetch resolves per-prefix release overrides", async () => {
       range: undefined,
     },
     {
-      key: "files/shards/releases/release-override/000.index.bin",
+      key: "files/shards/releases/release-current/000.index.bin",
       range: undefined,
     },
     {
-      key: "files/shards/releases/release-override/000.ndjson",
+      key: "files/shards/releases/release-current/000.ndjson",
       range: { offset: 0, length: fixture.ndjson.length },
     },
   ]);
@@ -274,7 +270,7 @@ test("fetch composes configured module shards into the base record", async () =>
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
       storage_release_id: "base-release",
-      module_shards: {
+      datasets: {
         cno: {
           json_property_name: "cno",
           storage_release_id: "cno-release",
@@ -283,8 +279,8 @@ test("fetch composes configured module shards into the base record", async () =>
     }),
     "files/shards/releases/base-release/000.index.bin": fixture.index,
     "files/shards/releases/base-release/000.ndjson": fixture.ndjson,
-    "files/shards/modules/cno/releases/cno-release/000.index.bin": moduleFixture.index,
-    "files/shards/modules/cno/releases/cno-release/000.ndjson": moduleFixture.ndjson,
+    "files/shards/modules/cno/cno-release/000.index.bin": moduleFixture.index,
+    "files/shards/modules/cno/cno-release/000.ndjson": moduleFixture.ndjson,
   });
   const assets = new FakeAssetsFetcher({});
 
@@ -310,9 +306,9 @@ test("fetch composes configured module shards into the base record", async () =>
     { key: "files/info.json", range: undefined },
     { key: "files/shards/releases/base-release/000.index.bin", range: undefined },
     { key: "files/shards/releases/base-release/000.ndjson", range: { offset: 0, length: fixture.ndjson.length } },
-    { key: "files/shards/modules/cno/releases/cno-release/000.index.bin", range: undefined },
+    { key: "files/shards/modules/cno/cno-release/000.index.bin", range: undefined },
     {
-      key: "files/shards/modules/cno/releases/cno-release/000.ndjson",
+      key: "files/shards/modules/cno/cno-release/000.ndjson",
       range: { offset: 0, length: moduleFixture.ndjson.length },
     },
   ]);
@@ -323,7 +319,7 @@ test("fetch exposes configured module key as null when CNPJ has no module record
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
       storage_release_id: "base-release",
-      module_shards: {
+      datasets: {
         cno: {
           json_property_name: "cno",
           storage_release_id: "cno-release",
@@ -353,7 +349,7 @@ test("fetch exposes configured module key as null when CNPJ has no module record
     { key: "files/info.json", range: undefined },
     { key: "files/shards/releases/base-release/000.index.bin", range: undefined },
     { key: "files/shards/releases/base-release/000.ndjson", range: { offset: 0, length: fixture.ndjson.length } },
-    { key: "files/shards/modules/cno/releases/cno-release/000.index.bin", range: undefined },
+    { key: "files/shards/modules/cno/cno-release/000.index.bin", range: undefined },
   ]);
 });
 
@@ -366,15 +362,15 @@ test("fetch with datasets=cno returns only the requested module", async () => {
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
       storage_release_id: "base-release",
-      module_shards: {
+      datasets: {
         cno: {
           json_property_name: "cno",
           storage_release_id: "cno-release",
         },
       },
     }),
-    "files/shards/modules/cno/releases/cno-release/000.index.bin": moduleFixture.index,
-    "files/shards/modules/cno/releases/cno-release/000.ndjson": moduleFixture.ndjson,
+    "files/shards/modules/cno/cno-release/000.index.bin": moduleFixture.index,
+    "files/shards/modules/cno/cno-release/000.ndjson": moduleFixture.ndjson,
   });
   const assets = new FakeAssetsFetcher({});
 
@@ -397,9 +393,9 @@ test("fetch with datasets=cno returns only the requested module", async () => {
   });
   assert.deepEqual(bucket.gets, [
     { key: "files/info.json", range: undefined },
-    { key: "files/shards/modules/cno/releases/cno-release/000.index.bin", range: undefined },
+    { key: "files/shards/modules/cno/cno-release/000.index.bin", range: undefined },
     {
-      key: "files/shards/modules/cno/releases/cno-release/000.ndjson",
+      key: "files/shards/modules/cno/cno-release/000.ndjson",
       range: { offset: 0, length: moduleFixture.ndjson.length },
     },
   ]);
@@ -411,7 +407,7 @@ test("fetch with datasets=receita returns only the root Receita dataset", async 
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
       storage_release_id: "base-release",
-      module_shards: {
+      datasets: {
         cno: {
           json_property_name: "cno",
           storage_release_id: "cno-release",
@@ -420,8 +416,8 @@ test("fetch with datasets=receita returns only the root Receita dataset", async 
     }),
     "files/shards/releases/base-release/000.index.bin": fixture.index,
     "files/shards/releases/base-release/000.ndjson": fixture.ndjson,
-    "files/shards/modules/cno/releases/cno-release/000.index.bin": moduleFixture.index,
-    "files/shards/modules/cno/releases/cno-release/000.ndjson": moduleFixture.ndjson,
+    "files/shards/modules/cno/cno-release/000.index.bin": moduleFixture.index,
+    "files/shards/modules/cno/cno-release/000.ndjson": moduleFixture.ndjson,
   });
   const assets = new FakeAssetsFetcher({});
 
@@ -481,7 +477,7 @@ test("fetch with embedded runtime info uses module asset indexes", async () => {
   });
   __test__.setEmbeddedRuntimeInfoForTest({
     storage_release_id: "base-release",
-    module_shards: {
+    datasets: {
       cno: {
         json_property_name: "cno",
         storage_release_id: "cno-release",
@@ -490,10 +486,10 @@ test("fetch with embedded runtime info uses module asset indexes", async () => {
   });
 
   const bucket = new FakeBucket({
-    "files/shards/modules/cno/releases/cno-release/000.ndjson": moduleFixture.ndjson,
+    "files/shards/modules/cno/cno-release/000.ndjson": moduleFixture.ndjson,
   });
   const assets = new FakeAssetsFetcher({
-    "/files/shards/modules/cno/releases/cno-release/000.index.bin": moduleFixture.index,
+    "/files/shards/modules/cno/cno-release/000.index.bin": moduleFixture.index,
   });
 
   const response = await worker.fetch(
@@ -513,10 +509,10 @@ test("fetch with embedded runtime info uses module asset indexes", async () => {
       obras: [{ cno: "123", nome: "OBRA TESTE" }],
     },
   });
-  assert.deepEqual(assets.requests, ["/files/shards/modules/cno/releases/cno-release/000.index.bin"]);
+  assert.deepEqual(assets.requests, ["/files/shards/modules/cno/cno-release/000.index.bin"]);
   assert.deepEqual(bucket.gets, [
     {
-      key: "files/shards/modules/cno/releases/cno-release/000.ndjson",
+      key: "files/shards/modules/cno/cno-release/000.ndjson",
       range: { offset: 0, length: moduleFixture.ndjson.length },
     },
   ]);
@@ -527,7 +523,7 @@ test("fetch rejects unknown datasets", async () => {
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
       storage_release_id: "base-release",
-      module_shards: {
+      datasets: {
         cno: {
           json_property_name: "cno",
           storage_release_id: "cno-release",
@@ -733,6 +729,48 @@ test("fetch serves /info from static assets", async () => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { versao: "2026-03" });
   assert.deepEqual(bucket.gets, [{ key: "files/info.json", range: undefined }]);
+});
+
+test("fetch /info ignores stale response cache when runtime info is embedded", async () => {
+  const cache = installFakeCache();
+  await cache.put(
+    new Request("https://cache.opencnpj/info"),
+    new Response(JSON.stringify({ storage_release_id: "old-release" }), { status: 200 }),
+  );
+
+  __test__.setEmbeddedRuntimeInfoForTest({
+    storage_release_id: "base-release",
+    datasets: {
+      rntrc: {
+        json_property_name: "rntrc",
+        storage_release_id: "rntrc-release",
+      },
+    },
+  });
+
+  const bucket = new FakeBucket({});
+  const assets = new FakeAssetsFetcher({});
+
+  const response = await worker.fetch(
+    new Request("https://worker.invalid/info"),
+    {
+      CNPJ_BUCKET: bucket as unknown as R2Bucket,
+      ASSETS: assets as unknown as Fetcher,
+    } satisfies Env,
+    createExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(await response.json(), {
+    storage_release_id: "base-release",
+    datasets: {
+      rntrc: {
+        json_property_name: "rntrc",
+        storage_release_id: "rntrc-release",
+      },
+    },
+  });
 });
 
 test("fetch reuses hot chunk cache when response cache is cold but range is already hot", async () => {

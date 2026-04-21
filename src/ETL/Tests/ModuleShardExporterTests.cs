@@ -33,15 +33,14 @@ public sealed class ModuleShardExporterTests
             var result = await new ModuleShardExporter().ExportLocalAsync(
                 source,
                 "module-release",
-                tempRoot,
-                ["607"]);
+                tempRoot);
 
             var dataPath = Path.Combine(result.LocalShardDir, "607.ndjson");
             var indexPath = Path.Combine(result.LocalShardDir, "607.index.bin");
 
             Assert.IsTrue(File.Exists(dataPath), "O shard sparse do módulo deveria ser gerado.");
             Assert.IsTrue(File.Exists(indexPath), "O índice binário do módulo deveria ser gerado.");
-            CollectionAssert.AreEqual(new[] { "607" }, result.GeneratedPrefixes.ToArray());
+            CollectionAssert.AreEqual(new[] { "108", "607" }, result.GeneratedPrefixes.ToArray());
 
             var lines = await File.ReadAllLinesAsync(dataPath);
             Assert.AreEqual(1, lines.Length, "O shard do módulo deve conter apenas CNPJs com payload do módulo.");

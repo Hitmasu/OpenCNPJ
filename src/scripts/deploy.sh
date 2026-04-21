@@ -104,12 +104,23 @@ resolve_dataset_key() {
     return
   fi
 
+  local release_info
+  while IFS= read -r release_info; do
+    local dataset_dir
+    dataset_dir="$(basename "$(dirname "$(dirname "$release_info")")")"
+    if [[ "$dataset_dir" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
+      printf '%s\n' "$dataset_dir"
+      return
+    fi
+  done < <(find "${ETL_DIR}/cnpj_shards" -path "*/releases/${RELEASE_ID}/info.json" -type f 2>/dev/null | sort)
+
   local latest=""
   local candidate
   for candidate in "${ETL_DIR}/cnpj_shards"/*; do
     [[ -d "$candidate" ]] || continue
     local name
     name="$(basename "$candidate")"
+    [[ "$name" =~ ^[0-9]{4}-[0-9]{2}$ ]] || continue
     if [[ -z "$latest" || "$name" > "$latest" ]]; then
       latest="$name"
     fi
@@ -185,7 +196,7 @@ copy_worker_assets() {
   local source_root="${ETL_DIR}/cnpj_shards/${dataset_key}/releases/${release_id}"
   local source_shards="${source_root}/shards"
   local source_info="${source_root}/info.json"
-  local module_shards_root="${ETL_DIR}/cnpj_shards/shards/modules"
+  local module_assets_root="${ETL_DIR}/cnpj_shards/shards/modules"
 
   [[ -f "$source_info" ]] || { echo "info.json não encontrado em ${source_info}" >&2; exit 1; }
 
@@ -196,15 +207,16 @@ copy_worker_assets() {
     find "$source_shards" -maxdepth 1 -type f -name '*.index.bin' -exec cp {} "${WORKER_ASSETS_SHARDS_DIR}/" \;
   fi
 
-  if [[ -d "$module_shards_root" ]]; then
+  if [[ -d "$module_assets_root" ]]; then
     while IFS= read -r module_index; do
       local relative_path
       local destination
       relative_path="${module_index#"${ETL_DIR}/cnpj_shards/"}"
+      relative_path="${relative_path/\/releases\//\/}"
       destination="${WORKER_ASSETS_FILES_DIR}/${relative_path}"
       mkdir -p "$(dirname "$destination")"
       cp "$module_index" "$destination"
-    done < <(find "$module_shards_root" -path "*/releases/${release_id}/*.index.bin" -type f)
+    done < <(find "$module_assets_root" -path "*/releases/${release_id}/*.index.bin" -type f)
   fi
 
 }
@@ -299,11 +311,15 @@ cleanup_dataset_artifacts() {
 validate_endpoint() {
   local url="$1"
   local expected_release="$2"
+  local retry_count="${OPENCNPJ_VALIDATE_RETRIES:-12}"
+  local retry_delay_seconds="${OPENCNPJ_VALIDATE_RETRY_DELAY_SECONDS:-5}"
+  local attempt=1
 
-  local response
-  response="$(fetch_json "$url")"
+  while true; do
+    local response
+    response="$(fetch_json "$url")"
 
-  printf '%s' "$response" | node -e '
+    if printf '%s' "$response" | node -e '
     let raw = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", chunk => raw += chunk);
@@ -320,21 +336,14 @@ validate_endpoint() {
         function collectBaseReleases(info) {
           const releases = new Set();
           if (info?.storage_release_id) releases.add(info.storage_release_id);
-          if (info?.default_shard_release_id) releases.add(info.default_shard_release_id);
-          for (const release of Object.values(info?.shard_releases ?? {})) {
-            if (release) releases.add(release);
-          }
           return releases;
         }
 
         function collectModuleReleases(info) {
           const releases = new Set();
-          for (const moduleInfo of Object.values(info?.module_shards ?? {})) {
-            if (moduleInfo?.storage_release_id) releases.add(moduleInfo.storage_release_id);
-            if (moduleInfo?.default_shard_release_id) releases.add(moduleInfo.default_shard_release_id);
-            for (const release of Object.values(moduleInfo?.shard_releases ?? {})) {
-              if (release) releases.add(release);
-            }
+          for (const [key, datasetInfo] of Object.entries(info?.datasets ?? {})) {
+            if (key === "receita") continue;
+            if (datasetInfo?.storage_release_id) releases.add(datasetInfo.storage_release_id);
           }
           return releases;
         }
@@ -355,7 +364,17 @@ validate_endpoint() {
         process.exit(1);
       }
     });
-  ' "$expected_release" "$url"
+  ' "$expected_release" "$url"; then
+      return 0
+    fi
+
+    if [[ "$attempt" -ge "$retry_count" ]]; then
+      return 1
+    fi
+
+    sleep "$retry_delay_seconds"
+    attempt=$((attempt + 1))
+  done
 }
 
 deploy_worker() {
@@ -381,6 +400,39 @@ deploy_worker() {
   printf '%s\n' "$parsed_url"
 }
 
+purge_cloudflare_cache() {
+  if [[ -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
+    log "CLOUDFLARE_ZONE_ID não configurado; pulando purge do cache da zona"
+    return 0
+  fi
+
+  if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+    log "CLOUDFLARE_API_TOKEN não configurado; pulando purge do cache da zona"
+    return 0
+  fi
+
+  log "Executando purge do cache da Cloudflare"
+  local response
+  response="$(curl -fsS \
+    -X POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+    -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    --data '{"purge_everything":true}')"
+
+  printf '%s' "$response" | node -e '
+    let raw = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", chunk => raw += chunk);
+    process.stdin.on("end", () => {
+      const payload = JSON.parse(raw);
+      if (!payload.success) {
+        console.error(`Cloudflare purge falhou: ${JSON.stringify(payload.errors ?? payload)}`);
+        process.exit(1);
+      }
+    });
+  '
+}
+
 delete_old_releases() {
   local old_info="$1"
   local new_info="$2"
@@ -397,22 +449,15 @@ delete_old_releases() {
     function collectBaseReleases(info) {
       const releases = new Set();
       if (info?.storage_release_id) releases.add(info.storage_release_id);
-      if (info?.default_shard_release_id) releases.add(info.default_shard_release_id);
-      for (const release of Object.values(info?.shard_releases ?? {})) {
-        if (release) releases.add(release);
-      }
       return releases;
     }
 
     function collectModuleReleases(info) {
       const releasesByModule = new Map();
-      for (const [key, moduleInfo] of Object.entries(info?.module_shards ?? {})) {
+      for (const [key, moduleInfo] of Object.entries(info?.datasets ?? {})) {
+        if (key === "receita") continue;
         const releases = releasesByModule.get(key) ?? new Set();
         if (moduleInfo?.storage_release_id) releases.add(moduleInfo.storage_release_id);
-        if (moduleInfo?.default_shard_release_id) releases.add(moduleInfo.default_shard_release_id);
-        for (const release of Object.values(moduleInfo?.shard_releases ?? {})) {
-          if (release) releases.add(release);
-        }
         releasesByModule.set(key, releases);
       }
       return releasesByModule;
@@ -437,7 +482,7 @@ delete_old_releases() {
       log "Removendo release base antigo ${first} em ${old_remote}"
       rclone purge "$old_remote"
     elif [[ "$kind" == "module" && -n "$first" && -n "$second" ]]; then
-      local old_remote="${remote_base%/}/shards/modules/${first}/releases/${second}"
+      local old_remote="${remote_base%/}/shards/modules/${first}/${second}"
       log "Removendo release antigo do módulo ${first}/${second} em ${old_remote}"
       rclone purge "$old_remote"
     fi
@@ -505,6 +550,8 @@ popd >/dev/null
 log "Fazendo deploy do Worker"
 DEPLOY_URL="$(deploy_worker | tail -n 1)"
 log "URL de validação: ${DEPLOY_URL}"
+
+purge_cloudflare_cache
 
 MASKED_VALIDATE_CNPJ="$(mask_cnpj_for_path "$VALIDATE_CNPJ")"
 

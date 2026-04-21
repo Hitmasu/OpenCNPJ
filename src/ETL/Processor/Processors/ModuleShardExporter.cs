@@ -8,7 +8,7 @@ using Spectre.Console;
 
 namespace CNPJExporter.Processors;
 
-internal sealed class ModuleShardExporter
+internal sealed class ModuleShardExporter : IModuleShardExporter
 {
     private const string ShardDataExtension = ".ndjson";
     private const string ShardIndexExtension = ".index.bin";
@@ -17,10 +17,9 @@ internal sealed class ModuleShardExporter
         DataIntegrationShardSource source,
         string releaseId,
         string outputRootDir,
-        IReadOnlyCollection<string>? prefixesToRegenerate,
         CancellationToken cancellationToken = default)
     {
-        var result = await ExportLocalAsync(source, releaseId, outputRootDir, prefixesToRegenerate, cancellationToken);
+        var result = await ExportLocalAsync(source, releaseId, outputRootDir, cancellationToken);
         var uploadTargets = BuildUploadTargets(result.LocalShardDir, result.GeneratedPrefixes);
 
         if (uploadTargets.Count == 0)
@@ -38,7 +37,6 @@ internal sealed class ModuleShardExporter
         DataIntegrationShardSource source,
         string releaseId,
         string outputRootDir,
-        IReadOnlyCollection<string>? prefixesToRegenerate,
         CancellationToken cancellationToken = default)
     {
         ValidateSource(source);
@@ -52,14 +50,7 @@ internal sealed class ModuleShardExporter
             releaseId.Trim('/'));
         Directory.CreateDirectory(localShardDir);
 
-        var prefixes = prefixesToRegenerate is null
-            ? await LoadAllPrefixesAsync(source.ParquetGlob, cancellationToken)
-            : prefixesToRegenerate
-                .Where(prefix => !string.IsNullOrWhiteSpace(prefix))
-                .Select(prefix => prefix.Trim())
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(prefix => prefix, StringComparer.Ordinal)
-                .ToArray();
+        var prefixes = await LoadAllPrefixesAsync(source.ParquetGlob, cancellationToken);
 
         if (prefixes.Count == 0)
         {
@@ -191,7 +182,7 @@ internal sealed class ModuleShardExporter
             .ToArray();
 
     private static string BuildModuleShardRemoteDir(string moduleKey, string releaseId) =>
-        $"shards/modules/{moduleKey.Trim('/')}/releases/{releaseId.Trim('/')}";
+        $"shards/modules/{moduleKey.Trim('/')}/{releaseId.Trim('/')}";
 
     private static string NormalizePayloadJson(string cnpj, string payloadJson)
     {

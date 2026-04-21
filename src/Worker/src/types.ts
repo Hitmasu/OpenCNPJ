@@ -16,16 +16,12 @@ export type BinaryIndexEntry = {
 
 export type RuntimeInfo = {
   storage_release_id?: string;
-  default_shard_release_id?: string;
-  shard_releases?: Record<string, string>;
-  module_shards?: Record<string, ModuleShardInfo>;
+  datasets?: Record<string, DatasetInfo>;
 };
 
-export type ModuleShardInfo = {
+export type DatasetInfo = {
   json_property_name?: string;
   storage_release_id?: string;
-  default_shard_release_id?: string;
-  shard_releases?: Record<string, string>;
 };
 
 export type DatasetSelection = {

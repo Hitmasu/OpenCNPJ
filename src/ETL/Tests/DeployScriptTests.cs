@@ -110,7 +110,7 @@ public sealed class DeployScriptTests
     }
 
     [TestMethod]
-    public void ValidateEndpoint_ShouldAcceptModuleOnlyRelease()
+    public void ValidateEndpoint_ShouldAcceptModuleReleaseFromDatasets()
     {
         var script = File.ReadAllText(FindDeployScript());
         var validateFunctionIndex = script.IndexOf("validate_endpoint()", StringComparison.Ordinal);
@@ -122,11 +122,17 @@ public sealed class DeployScriptTests
             validateFunction = validateFunction[..nextFunctionIndex];
 
         Assert.IsTrue(
+            validateFunction.Contains("info?.datasets", StringComparison.Ordinal),
+            "validate_endpoint must accept module releases from the canonical datasets map.");
+        Assert.IsFalse(
             validateFunction.Contains("module_shards", StringComparison.Ordinal),
-            "validate_endpoint must accept releases published only under module_shards.");
+            "validate_endpoint must not depend on the removed module_shards map.");
         Assert.IsTrue(
             validateFunction.Contains("releaseMatches", StringComparison.Ordinal),
             "validate_endpoint must validate the requested release against base and module release references.");
+        Assert.IsTrue(
+            validateFunction.Contains("OPENCNPJ_VALIDATE_RETRIES", StringComparison.Ordinal),
+            "validate_endpoint must retry semantic validation while Worker/cache propagation settles.");
     }
 
     [TestMethod]
@@ -168,18 +174,113 @@ public sealed class DeployScriptTests
             "deploy.sh must also clean up stale module releases.");
     }
 
+    [TestMethod]
+    public void Deploy_ShouldPurgeCloudflareCacheAfterWorkerDeployBeforeValidation()
+    {
+        var script = File.ReadAllText(FindDeployScript());
+
+        Assert.IsTrue(
+            script.Contains("purge_cloudflare_cache()", StringComparison.Ordinal),
+            "deploy.sh must define a Cloudflare cache purge step.");
+        Assert.IsTrue(
+            script.Contains("purge_everything", StringComparison.Ordinal),
+            "deploy.sh must purge the zone cache because module changes can affect any cached CNPJ response.");
+
+        var deployIndex = script.IndexOf("DEPLOY_URL=\"$(deploy_worker | tail -n 1)\"", StringComparison.Ordinal);
+        var purgeIndex = script.IndexOf("purge_cloudflare_cache", deployIndex, StringComparison.Ordinal);
+        var validateIndex = script.IndexOf("log \"Validando /info\"", StringComparison.Ordinal);
+
+        Assert.IsTrue(deployIndex >= 0, "deploy.sh must deploy the Worker.");
+        Assert.IsTrue(purgeIndex > deployIndex, "Cloudflare cache purge must run after Worker deploy.");
+        Assert.IsTrue(validateIndex > purgeIndex, "Endpoint validation must run after cache purge.");
+    }
+
+    [TestMethod]
+    public void ResolveDatasetKey_ShouldUseReleaseInfoAndIgnoreShardAssetDirectory()
+    {
+        var script = File.ReadAllText(FindDeployScript());
+        var functionIndex = script.IndexOf("resolve_dataset_key()", StringComparison.Ordinal);
+        Assert.IsTrue(functionIndex >= 0, "deploy.sh must define resolve_dataset_key.");
+
+        var function = script[functionIndex..];
+        var nextFunctionIndex = function.IndexOf("\nread_config_value()", StringComparison.Ordinal);
+        if (nextFunctionIndex >= 0)
+            function = function[..nextFunctionIndex];
+
+        Assert.IsTrue(
+            function.Contains("*/releases/${RELEASE_ID}/info.json", StringComparison.Ordinal),
+            "resolve_dataset_key must resolve the dataset from the info.json generated for the current release.");
+        Assert.IsTrue(
+            function.Contains("^[0-9]{4}-[0-9]{2}$", StringComparison.Ordinal),
+            "resolve_dataset_key must ignore non-dataset directories such as cnpj_shards/shards.");
+    }
+
+    [TestMethod]
+    public void DockerEntrypoint_ShouldRunHourlyDeployWithoutForcingReceitaMonth()
+    {
+        var script = File.ReadAllText(FindDockerEntrypointScript());
+
+        Assert.IsTrue(
+            script.Contains("CHECK_INTERVAL_SECONDS=\"${OPENCNPJ_CHECK_INTERVAL_SECONDS:-3600}\"", StringComparison.Ordinal),
+            "docker-entrypoint.sh must default to hourly execution.");
+        Assert.IsTrue(
+            script.Contains("while true; do", StringComparison.Ordinal),
+            "docker-entrypoint.sh must keep the container alive between runs.");
+        Assert.IsTrue(
+            script.Contains("\"${DEPLOY_SCRIPT}\" --cleanup-on-success", StringComparison.Ordinal),
+            "docker-entrypoint.sh must run deploy.sh through the normal production path.");
+        Assert.IsFalse(
+            script.Contains("--month", StringComparison.Ordinal),
+            "docker-entrypoint.sh must not force a Receita month; otherwise every hourly run republishes the base dataset.");
+        Assert.IsFalse(
+            script.Contains("--release-id", StringComparison.Ordinal),
+            "docker-entrypoint.sh should let deploy.sh generate a fresh release id only when there is work to publish.");
+    }
+
+    [TestMethod]
+    public void Dockerfile_ShouldUseEntrypointForDokployCommandOverrides()
+    {
+        var dockerfile = File.ReadAllText(FindRepoFile("Dockerfile"));
+
+        Assert.IsTrue(
+            dockerfile.Contains("ENTRYPOINT [\"/app/src/scripts/docker-entrypoint.sh\"]", StringComparison.Ordinal),
+            "Dockerfile must use ENTRYPOINT so Dokploy command overrides cannot bypass the hourly loop.");
+        Assert.IsFalse(
+            dockerfile.Contains("CMD [\"/app/src/scripts/docker-entrypoint.sh\"]", StringComparison.Ordinal),
+            "CMD is overridden by Dokploy command; the hourly loop must be the image ENTRYPOINT.");
+        Assert.IsFalse(
+            dockerfile.Contains("ENV CLOUDFLARE_ACCOUNT_ID", StringComparison.Ordinal),
+            "Cloudflare account id must be provided by runtime configuration, not baked into the image.");
+        Assert.IsFalse(
+            dockerfile.Contains("ENV CLOUDFLARE_ZONE_ID", StringComparison.Ordinal),
+            "Cloudflare zone id must be provided by runtime configuration, not baked into the image.");
+        Assert.IsFalse(
+            dockerfile.Contains("ENV CLOUDFLARE_API_TOKEN", StringComparison.Ordinal),
+            "Cloudflare API token must be provided by runtime configuration, not baked into the image.");
+    }
+
     private static string FindDeployScript()
+    {
+        return FindRepoFile("src", "scripts", "deploy.sh");
+    }
+
+    private static string FindDockerEntrypointScript()
+    {
+        return FindRepoFile("src", "scripts", "docker-entrypoint.sh");
+    }
+
+    private static string FindRepoFile(params string[] segments)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current is not null)
         {
-            var candidate = Path.Combine(current.FullName, "src", "scripts", "deploy.sh");
+            var candidate = Path.Combine([current.FullName, ..segments]);
             if (File.Exists(candidate))
                 return candidate;
 
             current = current.Parent;
         }
 
-        throw new FileNotFoundException("Could not locate src/scripts/deploy.sh.");
+        throw new FileNotFoundException($"Could not locate {Path.Combine(segments)}.");
     }
 }

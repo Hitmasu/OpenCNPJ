@@ -10,6 +10,7 @@ public class AppConfig
     public ShardSettings Shards { get; set; } = new();
     public DownloaderSettings Downloader { get; set; } = new();
     public CnoIntegrationSettings CnoIntegration { get; set; } = new();
+    public RntrcIntegrationSettings RntrcIntegration { get; set; } = new();
 
     public class PathsConfig
     {
@@ -56,8 +57,15 @@ public class AppConfig
     public class CnoIntegrationSettings
     {
         public bool Enabled { get; set; } = true;
-        public string PublicShareRoot { get; set; } = "https://arquivos.receitafederal.gov.br/public.php/dav/files/gn672Ad4CF8N6TK/Dados/Cadastros/CNO/";
+        public string PublicShareRoot { get; set; } = string.Empty;
         public string ZipFileName { get; set; } = "cno.zip";
+        public int RefreshHours { get; set; } = 24;
+    }
+
+    public class RntrcIntegrationSettings
+    {
+        public bool Enabled { get; set; } = true;
+        public string PackageShowUrl { get; set; } = string.Empty;
         public int RefreshHours { get; set; } = 24;
     }
 

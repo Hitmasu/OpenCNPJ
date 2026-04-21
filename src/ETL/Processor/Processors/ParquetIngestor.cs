@@ -82,8 +82,7 @@ public class ParquetIngestor : IDisposable
 
     public async Task ExportAndUploadToStorage(
         string outputRootDir,
-        string releaseId,
-        IReadOnlyCollection<string>? prefixesToRegenerate = null)
+        string releaseId)
     {
         var outputDir = GetDatasetOutputDir(outputRootDir);
         var releaseOutputDir = GetLocalReleaseOutputDir(outputRootDir, releaseId);
@@ -95,7 +94,7 @@ public class ParquetIngestor : IDisposable
 
         AnsiConsole.MarkupLine("[cyan]🚀 Iniciando geração e upload de shards...[/]");
 
-        await ExportShardsToStorage(releaseOutputDir, releaseId, prefixesToRegenerate);
+        await ExportShardsToStorage(releaseOutputDir, releaseId);
 
         AnsiConsole.MarkupLine("[green]🎉 Geração e upload de shards concluídos![/]");
     }
@@ -110,15 +109,14 @@ public class ParquetIngestor : IDisposable
 
     private async Task ExportShardsToStorage(
         string outputDir,
-        string releaseId,
-        IReadOnlyCollection<string>? prefixesToRegenerate)
+        string releaseId)
     {
         var localShardDir = Path.Combine(outputDir, AppConfig.Current.Shards.RemoteDir);
         Directory.CreateDirectory(localShardDir);
 
         var allPrefixes = _shardQueryBuilder.GetExistingShardPrefixes();
         var releaseRemoteDir = BuildReleaseShardRemoteDir(releaseId);
-        var releasePlan = BuildReleasePlan(localShardDir, allPrefixes, prefixesToRegenerate);
+        var releasePlan = BuildReleasePlan(localShardDir, allPrefixes);
         var emptyCount = 0;
         var batchSize = Math.Max(1, AppConfig.Current.Shards.QueryBatchSize);
         var prefixBatches = BuildShardPrefixBatches(releasePlan.PrefixesToGenerate, batchSize);
@@ -385,9 +383,7 @@ public class ParquetIngestor : IDisposable
     public async Task GenerateAndUploadFinalInfoJsonAsync(
         string releaseId,
         IReadOnlyList<DataIntegrationRunSummary>? integrationSummaries = null,
-        string? receitaLastUpdated = null,
-        IReadOnlyDictionary<string, string>? shardReleases = null,
-        string? defaultShardReleaseId = null)
+        string? receitaLastUpdated = null)
     {
         try
         {
@@ -411,13 +407,19 @@ public class ParquetIngestor : IDisposable
                 shard_prefix_length = AppConfig.Current.Shards.PrefixLength,
                 shard_count = _shardQueryBuilder.GetShardCount(),
                 storage_release_id = releaseId,
-                default_shard_release_id = defaultShardReleaseId ?? releaseId,
-                shard_releases = shardReleases ?? new Dictionary<string, string>(StringComparer.Ordinal),
+                datasets = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["receita"] = new
+                    {
+                        storage_release_id = releaseId,
+                        updated_at = lastUpdated,
+                        record_count = total
+                    }
+                },
                 shard_index_distribution = "r2",
                 shard_format = "ndjson+binary-index",
                 zip_layout = "disabled",
-                cnpj_type = "string",
-                sources = BuildInfoSources(lastUpdated, integrationSummaries ?? [])
+                cnpj_type = "string"
             };
 
             var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
@@ -492,27 +494,14 @@ public class ParquetIngestor : IDisposable
 
     private static ShardReleasePlan BuildReleasePlan(
         string localShardDir,
-        IReadOnlyList<string> allPrefixes,
-        IReadOnlyCollection<string>? prefixesToRegenerate)
+        IReadOnlyList<string> allPrefixes)
     {
-        var forcedPrefixes = prefixesToRegenerate is null
-            ? new HashSet<string>(StringComparer.Ordinal)
-            : new HashSet<string>(prefixesToRegenerate, StringComparer.Ordinal);
         var prefixesUploadOnly = new List<string>();
         var prefixesToGenerate = new List<string>();
 
         foreach (var prefix in allPrefixes)
         {
-            if (prefixesToRegenerate is not null)
-            {
-                if (forcedPrefixes.Contains(prefix))
-                    prefixesToGenerate.Add(prefix);
-
-                continue;
-            }
-
-            if (!forcedPrefixes.Contains(prefix)
-                && File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardDataExtension}"))
+            if (File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardDataExtension}"))
                 && File.Exists(Path.Combine(localShardDir, $"{prefix}{ShardIndexExtension}")))
             {
                 prefixesUploadOnly.Add(prefix);
@@ -530,10 +519,9 @@ public class ParquetIngestor : IDisposable
 
     internal static (IReadOnlyList<string> UploadOnly, IReadOnlyList<string> ToGenerate) BuildReleasePlanForTest(
         string localShardDir,
-        IReadOnlyList<string> allPrefixes,
-        IReadOnlyCollection<string>? prefixesToRegenerate)
+        IReadOnlyList<string> allPrefixes)
     {
-        var plan = BuildReleasePlan(localShardDir, allPrefixes, prefixesToRegenerate);
+        var plan = BuildReleasePlan(localShardDir, allPrefixes);
         return (plan.PrefixesUploadOnly, plan.PrefixesToGenerate);
     }
 
@@ -636,32 +624,6 @@ public class ParquetIngestor : IDisposable
         }
 
         return batches;
-    }
-
-    private object BuildInfoSources(
-        string receitaUpdatedAt,
-        IReadOnlyList<DataIntegrationRunSummary> integrationSummaries)
-    {
-        return new
-        {
-            receita = new
-            {
-                dataset_key = _datasetKey,
-                updated_at = receitaUpdatedAt
-            },
-            integrations = integrationSummaries.ToDictionary(
-                summary => summary.Descriptor.Key,
-                summary => new
-                {
-                    updated_at = summary.UpdatedAt.ToString("o"),
-                    source_version = summary.SourceVersion,
-                    schema_version = summary.Descriptor.SchemaVersion,
-                    record_count = summary.RecordCount,
-                    changed_cnpj_count = summary.ChangedCnpjs.Count,
-                    json_property_name = summary.Descriptor.JsonPropertyName
-                },
-                StringComparer.Ordinal)
-        };
     }
 
     public void Dispose()

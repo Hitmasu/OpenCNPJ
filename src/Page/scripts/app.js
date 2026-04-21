@@ -32,7 +32,7 @@
   const ASCII_ZERO = '0'.charCodeAt(0);
   const CHECK_DIGIT_WEIGHT = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
   const ZEROED_CNPJ = '00000000000000';
-  const DATASET_ORDER = ['receita', 'cno'];
+  const DATASET_ORDER = ['receita', 'cno', 'rntrc'];
   const DATASET_DETAILS = {
     receita: {
       name: 'Receita Federal',
@@ -43,6 +43,11 @@
       name: 'Cadastro Nacional de Obras',
       description: 'Obras vinculadas ao CNPJ responsável, incluindo dados de obra, situação, localização, área e vínculos conhecidos.',
       frequency: 'Diária',
+    },
+    rntrc: {
+      name: 'Registro Nacional de Transportadores Rodoviários de Cargas',
+      description: 'Dados do transportador no RNTRC, incluindo número do registro, categoria, situação, município, UF e datas cadastrais.',
+      frequency: 'Mensal',
     },
   };
 

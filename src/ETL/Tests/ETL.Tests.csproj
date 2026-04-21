@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Integrations.Abstractions\CNPJExporter.Integrations.Abstractions.csproj" />
     <ProjectReference Include="..\Modules\Cno\CNPJExporter.Module.Cno.csproj" />
+    <ProjectReference Include="..\Modules\Rntrc\CNPJExporter.Module.Rntrc.csproj" />
     <ProjectReference Include="..\Processor\CNPJExporter.csproj" />
   </ItemGroup>
 

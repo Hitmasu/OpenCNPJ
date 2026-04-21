@@ -5,6 +5,4 @@ internal sealed record PublishedInfoSnapshot(
     int? ShardCount,
     string? LastUpdated,
     string? StorageReleaseId,
-    string? DefaultShardReleaseId,
-    IReadOnlyDictionary<string, string> ShardReleases,
     IReadOnlyDictionary<string, PublishedModuleShardSnapshot> ModuleShards);

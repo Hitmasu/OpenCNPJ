@@ -7,7 +7,7 @@ namespace ETL.Tests;
 public sealed class ShardReleasePlanTests
 {
     [TestMethod]
-    public void BuildReleasePlan_WithPartialPrefixes_ShouldGenerateOnlyRequestedPrefixes()
+    public void BuildReleasePlan_WithMissingLocalShards_ShouldGenerateMissingAndUploadExisting()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"opencnpj-release-plan-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
@@ -16,11 +16,10 @@ public sealed class ShardReleasePlanTests
         {
             var plan = ParquetIngestor.BuildReleasePlanForTest(
                 tempDir,
-                ["000", "001", "002"],
-                ["001"]);
+                ["000", "001", "002"]);
 
             CollectionAssert.AreEqual(Array.Empty<string>(), plan.UploadOnly.ToArray());
-            CollectionAssert.AreEqual(new[] { "001" }, plan.ToGenerate.ToArray());
+            CollectionAssert.AreEqual(new[] { "000", "001", "002" }, plan.ToGenerate.ToArray());
         }
         finally
         {
