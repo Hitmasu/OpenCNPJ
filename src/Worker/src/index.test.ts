@@ -658,6 +658,59 @@ test("fetch returns 404 when the record is not present in the binary index", asy
   ]);
 });
 
+test("fetch returns JSON Schema 2020-12 on /schema", async () => {
+  const bucket = new FakeBucket({});
+  const assets = new FakeAssetsFetcher({});
+
+  const response = await worker.fetch(
+    new Request("https://worker.invalid/schema"),
+    {
+      CNPJ_BUCKET: bucket as unknown as R2Bucket,
+      ASSETS: assets as unknown as Fetcher,
+    } satisfies Env,
+    createExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("Content-Type") ?? "", /application\/json/);
+
+  const schema = (await response.json()) as Record<string, unknown>;
+  assert.equal(schema["$schema"], "https://json-schema.org/draft/2020-12/schema");
+  assert.equal(schema["$id"], "https://api.opencnpj.org/schema");
+  assert.equal(schema.type, "object");
+
+  const required = schema.required as string[];
+  for (const field of [
+    "cnpj",
+    "razao_social",
+    "cnae_principal",
+    "natureza_juridica",
+    "cep",
+    "uf",
+    "municipio",
+    "telefones",
+    "QSA",
+  ]) {
+    assert.ok(required.includes(field), `expected required to include ${field}`);
+  }
+
+  const defs = schema["$defs"] as Record<string, unknown>;
+  for (const def of ["Telefone", "QsaMember", "CnoPayload", "CnoObra", "CodigoDescricao"]) {
+    assert.ok(defs[def], `expected $defs to include ${def}`);
+  }
+
+  const properties = schema.properties as Record<string, { type?: string }>;
+  assert.equal(properties.cnpj?.type, "string");
+
+  const fixture = createLookupFixture();
+  for (const key of Object.keys(fixture.payload)) {
+    assert.ok(key in properties, `fixture key ${key} should be declared in schema.properties`);
+  }
+
+  assert.deepEqual(bucket.gets, []);
+  assert.deepEqual(assets.requests, []);
+});
+
 test("fetch serves /info from static assets", async () => {
   const bucket = new FakeBucket({});
   const assets = new FakeAssetsFetcher({
