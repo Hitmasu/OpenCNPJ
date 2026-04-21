@@ -1,3 +1,5 @@
+import { jsonOkNoStore } from "./http.ts";
+
 export const CNPJ_RESPONSE_SCHEMA_ID = "https://api.opencnpj.org/schema";
 
 const DATE_PATTERN = "^$|^\\d{4}-\\d{2}-\\d{2}$";
@@ -6,7 +8,7 @@ export const CNPJ_RESPONSE_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: CNPJ_RESPONSE_SCHEMA_ID,
   title: "OpenCNPJ CNPJ response",
-  description: "Resposta do endpoint https://api.opencnpj.org/{cnpj}. Módulos opcionais (ex.: cno) são adicionados como chaves extras quando disponíveis para o CNPJ consultado.",
+  description: "Resposta do endpoint https://api.opencnpj.org/{cnpj}. Módulos opcionais (ex.: cno, rntrc) são adicionados como chaves extras quando disponíveis para o CNPJ consultado.",
   type: "object",
   additionalProperties: true,
   required: [
@@ -188,6 +190,13 @@ export const CNPJ_RESPONSE_SCHEMA = {
         { $ref: "#/$defs/CnoPayload" },
       ],
     },
+    rntrc: {
+      description: "Presente apenas quando há registro RNTRC publicado pela ANTT para este CNPJ.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/RntrcPayload" },
+      ],
+    },
   },
   $defs: {
     Telefone: {
@@ -349,5 +358,45 @@ export const CNPJ_RESPONSE_SCHEMA = {
         codigo_localizacao: { type: "string", minLength: 0, maxLength: 10 },
       },
     },
+    RntrcPayload: {
+      type: "object",
+      required: [
+        "updated_at",
+        "numero_rntrc",
+        "nome",
+        "categoria",
+        "situacao",
+        "data_primeiro_cadastro",
+        "data_situacao",
+        "cep",
+        "municipio",
+        "uf",
+        "equiparado",
+      ],
+      additionalProperties: false,
+      properties: {
+        updated_at: {
+          type: "string",
+          description: "Timestamp ISO 8601 da última atualização do módulo RNTRC para este CNPJ.",
+          minLength: 0,
+          maxLength: 40,
+          examples: ["2026-04-14T00:00:00Z", "2026-04-14T00:00:00.0000000+00:00"],
+        },
+        numero_rntrc: { type: "string", minLength: 0, maxLength: 20 },
+        nome: { type: "string", minLength: 0, maxLength: 200 },
+        categoria: { type: "string", minLength: 0, maxLength: 20, examples: ["ETC", "TAC"] },
+        situacao: { type: "string", minLength: 0, maxLength: 30, examples: ["ATIVO", "PENDENTE"] },
+        data_primeiro_cadastro: { type: "string", minLength: 0, maxLength: 30 },
+        data_situacao: { type: "string", minLength: 0, maxLength: 30 },
+        cep: { type: "string", minLength: 0, maxLength: 10 },
+        municipio: { type: "string", minLength: 0, maxLength: 100 },
+        uf: { type: "string", minLength: 0, maxLength: 2 },
+        equiparado: { type: "boolean" },
+      },
+    },
   },
 } as const;
+
+export function loadSchema(): Response {
+  return jsonOkNoStore(CNPJ_RESPONSE_SCHEMA);
+}

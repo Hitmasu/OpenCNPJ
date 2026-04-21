@@ -673,6 +673,7 @@ test("fetch returns JSON Schema 2020-12 on /schema", async () => {
 
   assert.equal(response.status, 200);
   assert.match(response.headers.get("Content-Type") ?? "", /application\/json/);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
 
   const schema = (await response.json()) as Record<string, unknown>;
   assert.equal(schema["$schema"], "https://json-schema.org/draft/2020-12/schema");
@@ -695,12 +696,19 @@ test("fetch returns JSON Schema 2020-12 on /schema", async () => {
   }
 
   const defs = schema["$defs"] as Record<string, unknown>;
-  for (const def of ["Telefone", "QsaMember", "CnoPayload", "CnoObra", "CodigoDescricao"]) {
+  for (const def of ["Telefone", "QsaMember", "CnoPayload", "CnoObra", "CodigoDescricao", "RntrcPayload"]) {
     assert.ok(defs[def], `expected $defs to include ${def}`);
   }
 
-  const properties = schema.properties as Record<string, { type?: string }>;
+  const properties = schema.properties as Record<string, { type?: string; oneOf?: Array<{ type?: string; $ref?: string }> }>;
   assert.equal(properties.cnpj?.type, "string");
+  assert.deepEqual(
+    properties.rntrc?.oneOf,
+    [
+      { type: "null" },
+      { $ref: "#/$defs/RntrcPayload" },
+    ],
+  );
 
   const fixture = createLookupFixture();
   for (const key of Object.keys(fixture.payload)) {
