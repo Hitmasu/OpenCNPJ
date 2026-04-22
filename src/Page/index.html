@@ -10,7 +10,7 @@
     <!-- Open Graph / WhatsApp / LinkedIn -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="OpenCNPJ – API pública de CNPJ" />
-    <meta property="og:description" content="Consulta gratuita de CNPJ com resposta em JSON. Base atualizada mensalmente e opção de download completo." />
+    <meta property="og:description" content="Consulta gratuita de CNPJ com resposta em JSON e datasets públicos com atualização própria." />
     <meta property="og:site_name" content="OpenCNPJ" />
     <meta property="og:locale" content="pt_BR" />
     <meta property="og:image" content="/assets/og-image.svg" />
@@ -22,7 +22,7 @@
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="OpenCNPJ – API pública de CNPJ" />
-    <meta name="twitter:description" content="Consulta gratuita de CNPJ com resposta em JSON. Base atualizada mensalmente e opção de download completo." />
+    <meta name="twitter:description" content="Consulta gratuita de CNPJ com resposta em JSON e datasets públicos com atualização própria." />
     <meta name="twitter:image" content="/assets/og-image.svg" />
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="stylesheet" href="css/styles.css" />
@@ -202,7 +202,7 @@ curl -s "https://api.opencnpj.org/00000000000000?datasets=receita,cno,rntrc" | j
         <p class="api-meta"><strong>Total de CNPJs cadastrados na Receita Federal:</strong> <span id="info-total"></span> <br/> <strong>Última atualização geral:</strong> <span id="info-updated"></span></p>
 
         <h3>Bases disponíveis na API</h3>
-        <p id="datasets-status" class="hint" aria-live="polite">Carregando bases publicadas…</p>
+        <p id="datasets-status" aria-live="polite">Carregando bases publicadas…</p>
         <div class="table-scroll">
           <table class="lib-table dataset-table" aria-label="Bases disponíveis na API">
             <thead>
@@ -212,44 +212,16 @@ curl -s "https://api.opencnpj.org/00000000000000?datasets=receita,cno,rntrc" | j
                 <th>Frequência de atualização</th>
                 <th>Registros</th>
                 <th>Filtro</th>
+                <th>Download</th>
               </tr>
             </thead>
             <tbody id="datasets-body"></tbody>
           </table>
         </div>
 
-        <h3>Download completo (ZIP)</h3>
-        <div class="download-block">
-          <p id="zip-desc">Prefere trabalhar offline ou integrar localmente? Baixe a base completa de CNPJs em um único arquivo ZIP e processe no seu próprio ambiente. O pacote é atualizado mensalmente, em formato aberto.</p>
-          <div class="actions">
-            <a id="zip-download" class="btn primary" href="#" target="_blank" rel="noopener" download>Baixar base completa (.zip)</a>
-            <span id="zip-size" class="badge">Tamanho:</span>
-          </div>
-          <div class="alert warning" role="note" aria-label="Aviso sobre tamanho descompactado">
-            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
-              <path d="M1 21h22L12 2 1 21zm12-3h-2v2h2v-2zm0-8h-2v6h2V10z"/>
-            </svg>
-            <div>
-              <strong>Aviso:</strong> após descompactar, o volume esperado é de aproximadamente <strong>550 GB</strong>.
-            </div>
-          </div>
-          <p class="api-meta">
-            <strong>URL:</strong> <a id="zip-url" href="#" target="_blank" rel="noopener"></a><br/>
-            <strong>MD5:</strong> <code id="zip-md5"></code>
-          </p>
-          <div class="alert info" role="note" aria-label="Automatize o download da base">
-            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
-              <path d="M11 7h2v2h-2V7zm0 4h2v6h-2v-6zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
-            </svg>
-            <div>
-              Quer automatizar o fluxo de atualização? Consulte <a href="https://api.opencnpj.org/info" target="_blank" rel="noopener">https://api.opencnpj.org/info</a> para obter as datas mais recentes das bases, a URL do ZIP e o MD5 para verificação.
-            </div>
-          </div>
-        </div>
-
         <h3>Dataset público no BigQuery</h3>
         <div class="download-block">
-          <p>A base cadastral da Receita Federal também está replicada em um dataset do <strong>Google BigQuery</strong>. Priorize essa opção para consultas analíticas, validação em massa e enriquecimento de leads diretamente na nuvem, sem precisar baixar o ZIP.</p>
+          <p>A base cadastral da Receita Federal também está replicada em um dataset do <strong>Google BigQuery</strong>. Priorize essa opção para consultas analíticas, validação em massa e enriquecimento de leads diretamente na nuvem, sem precisar gerenciar os shards NDJSON localmente.</p>
           <div class="actions">
             <a class="btn" href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">Abrir no BigQuery</a>
           </div>
@@ -345,7 +317,7 @@ curl -s "https://api.opencnpj.org/00000000000000?datasets=receita,cno,rntrc" | j
             Patrocinar no GitHub Sponsors
           </a>
         </div>
-        <p class="hint comment">As doações viabilizam as ações planejadas para diminuir ainda mais o tempo de resposta, aumentar a disponibilidade e manter a infraestrutura, e ainda garantem a coquinha do desenvolvedor 😉</p>
+        <p class="hint comment">As doações viabilizam as ações planejadas para diminuir ainda mais o tempo de resposta, aumentar a disponibilidade e manter a infraestrutura.</p>
       </section>
 
       <section id="faq">
@@ -376,9 +348,9 @@ curl -s "https://api.opencnpj.org/00000000000000?datasets=receita,cno,rntrc" | j
             <summary>Posso consultar massivamente os dados?</summary>
             <div class="answer">
               <p>A API é pública e existe para o bem de todos. Para evitar que um mau uso prejudique outros usuários, <strong>não toleramos mais grandes volumes de consultas massivas</strong> (ex.: validação de bases inteiras sem intervalos).</p>
-              <p>Sobre limites: aceitamos <strong>picos de até 50 requisições/segundo por IP</strong>. Porém, para <strong>validação de bases</strong> ou consultas analíticas em larga escala, utilize o arquivo <strong>.zip</strong> disponível na seção <em>Dados</em> ou acesse <a href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">nosso dataset público no BigQuery</a> para trabalhar com a base cadastral da Receita Federal.</p>
+              <p>Sobre limites: aceitamos <strong>picos de até 50 requisições/segundo por IP</strong>. Porém, para <strong>validação de bases</strong> ou consultas analíticas em larga escala, utilize os shards <strong>NDJSON</strong> publicados por base ou acesse <a href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">nosso dataset público no BigQuery</a> para trabalhar com a base cadastral da Receita Federal.</p>
               <p>Caso identifiquemos validação de bases inteiras sem pausas, aplicaremos <strong>dois bloqueios temporários</strong>; se continuar, aplicaremos um <strong>bloqueio permanente</strong>. Contamos com o bom senso: <strong>validar 10 mil CNPJs</strong> é muito diferente de <strong>validar 1 milhão</strong>.</p>
-              <p>Se precisar de um fluxo automatizado para <strong>consultas em batch</strong>, utilize preferencialmente o dataset no BigQuery ou o download do ZIP em vez de chamar a API individualmente.</p>
+              <p>Se precisar de um fluxo automatizado para <strong>consultas em batch</strong>, utilize preferencialmente o dataset no BigQuery ou os shards NDJSON publicados por base, em vez de chamar a API individualmente.</p>
             </div>
           </details>
 

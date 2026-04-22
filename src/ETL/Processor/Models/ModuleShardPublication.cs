@@ -7,7 +7,8 @@ internal sealed record ModuleShardPublication(
     string? SourceVersion,
     DateTimeOffset UpdatedAt,
     long RecordCount,
-    string StorageReleaseId)
+    string StorageReleaseId,
+    ZipArtifactPublication Zip)
 {
     public static ModuleShardPublication FromPublished(PublishedModuleShardSnapshot snapshot) =>
         new(
@@ -17,5 +18,6 @@ internal sealed record ModuleShardPublication(
             snapshot.SourceVersion,
             snapshot.UpdatedAt,
             snapshot.RecordCount,
-            snapshot.StorageReleaseId);
+            snapshot.StorageReleaseId,
+            snapshot.Zip.ToPublication());
 }

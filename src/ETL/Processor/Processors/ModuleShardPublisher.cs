@@ -8,10 +8,14 @@ namespace CNPJExporter.Processors;
 internal sealed class ModuleShardPublisher
 {
     private readonly IModuleShardExporter _exporter;
+    private readonly IShardZipPublisher _zipPublisher;
 
-    public ModuleShardPublisher(IModuleShardExporter? exporter = null)
+    public ModuleShardPublisher(
+        IModuleShardExporter? exporter = null,
+        IShardZipPublisher? zipPublisher = null)
     {
         _exporter = exporter ?? new ModuleShardExporter();
+        _zipPublisher = zipPublisher ?? new ShardZipPublisher();
     }
 
     public async Task<IReadOnlyDictionary<string, ModuleShardPublication>> PublishAsync(
@@ -48,21 +52,46 @@ internal sealed class ModuleShardPublisher
             if (!shouldPublish)
                 continue;
 
-            AnsiConsole.MarkupLine($"[cyan]Publicando todos os shards do módulo {source.Key.EscapeMarkup()}...[/]");
+            var publicationReleaseId = releaseId;
+            AnsiConsole.MarkupLine(
+                $"[grey]Módulo {source.Key.EscapeMarkup()}:[/] executando publicação [cyan]shards+zip[/] [grey](release efetivo: {publicationReleaseId.EscapeMarkup()})[/]");
+            var publication = await PublishChangedModuleAsync(source, summary, publicationReleaseId, outputRootDir, cancellationToken);
 
-            await _exporter.ExportAndUploadAsync(
-                source,
-                releaseId,
+            AnsiConsole.MarkupLine(
+                $"[cyan]Gerando ZIP do módulo {source.Key.EscapeMarkup()}...[/] [grey](release efetivo: {publicationReleaseId.EscapeMarkup()})[/]");
+            var zip = await _zipPublisher.PublishModuleAsync(
+                source.Key,
+                publicationReleaseId,
                 outputRootDir,
                 cancellationToken);
+            publication = publication with { Zip = zip };
 
-            publications[source.Key] = BuildPublication(
-                source,
-                summary,
-                releaseId);
+            publications[source.Key] = publication;
         }
 
         return publications;
+    }
+
+    private async Task<ModuleShardPublication> PublishChangedModuleAsync(
+        DataIntegrationShardSource source,
+        DataIntegrationRunSummary summary,
+        string releaseId,
+        string outputRootDir,
+        CancellationToken cancellationToken)
+    {
+        AnsiConsole.MarkupLine(
+            $"[cyan]Publicando todos os shards do módulo {source.Key.EscapeMarkup()}...[/] [grey](schema: {source.SchemaVersion.EscapeMarkup()}, source_version: {(source.SourceVersion ?? "n/a").EscapeMarkup()}, registros: {summary.RecordCount:N0})[/]");
+
+        await _exporter.ExportAndUploadAsync(
+            source,
+            releaseId,
+            outputRootDir,
+            cancellationToken);
+
+        return BuildPublication(
+            source,
+            summary,
+            releaseId);
     }
 
     private static ModuleShardPublication BuildPublication(
@@ -77,6 +106,7 @@ internal sealed class ModuleShardPublisher
             source.SourceVersion,
             summary.UpdatedAt,
             summary.RecordCount,
-            releaseId);
+            releaseId,
+            ZipArtifactPublication.Missing);
     }
 }

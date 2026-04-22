@@ -35,7 +35,7 @@ body{
   line-height:1.5;
 }
 
-.container{max-width:1200px;margin:0 auto;padding:24px}
+.container{max-width:1360px;margin:0 auto;padding:24px}
 .logo{display:block}
 .site-footer{padding:24px 0;color:var(--muted)}
 
@@ -69,6 +69,9 @@ h3{margin:16px 0 6px;font-size:18px;color:var(--primary)}
 /* API meta */
 .api-meta{margin:8px 0 4px;color:var(--muted)}
 .api-meta strong{color:var(--neutral)}
+#datasets-status{color:var(--neutral);font-size:16px;line-height:1.6;margin:0 0 14px}
+#datasets-status a{font-weight:600}
+.datasets-status-line{display:block}
 
 
 .search{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end}
@@ -91,7 +94,6 @@ input:not([type]){
 .hint.comment{margin-top:12px;padding-left:12px;border-left:2px dashed var(--border);font-style:italic;opacity:.95}
 /* Download block spacing */
 .download-block{margin-top:10px}
-/* ZIP size badge and note */
 .badge{
   display:inline-flex;align-items:center;gap:6px;
   background:rgba(34,184,207,.12);
@@ -216,6 +218,10 @@ p, li{color:var(--neutral)}
 .dataset-table td{vertical-align:top}
 .dataset-table code{white-space:nowrap}
 .dataset-desc{margin:4px 0 0;color:var(--muted);font-size:14px;max-width:620px}
+.dataset-download-cell{min-width:220px}
+.dataset-download-cell .btn{display:inline-block;padding:8px 12px}
+.dataset-download-meta{margin:6px 0 0;color:var(--muted);font-size:13px}
+.dataset-download-checksum{word-break:break-all}
 /* Space between table and hint text */
 #bibliotecas .hint{margin-top:12px}
 /* Expand arrow */

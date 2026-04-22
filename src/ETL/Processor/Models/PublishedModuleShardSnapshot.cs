@@ -7,4 +7,5 @@ internal sealed record PublishedModuleShardSnapshot(
     string? SourceVersion,
     DateTimeOffset UpdatedAt,
     long RecordCount,
-    string StorageReleaseId);
+    string StorageReleaseId,
+    PublishedZipArtifactSnapshot Zip);

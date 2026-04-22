@@ -108,7 +108,9 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
         var hasIntegrationPublicationChanges = integrationSummaries.Any(summary => summary.HasPublicationChanges);
         var requiresModuleShardBootstrap = RequiresModuleShardBootstrap(integrationSummaries, publishedInfo);
 
-        if (!receitaChanged && !hasIntegrationPublicationChanges && !requiresModuleShardBootstrap)
+        if (!receitaChanged
+            && !hasIntegrationPublicationChanges
+            && !requiresModuleShardBootstrap)
             return NoWork(currentMonth);
 
         if (!receitaChanged
@@ -145,6 +147,13 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                 publishedInfo,
                 AppConfig.Current.Paths.OutputDir);
 
+            var baseZip = receitaChanged
+                ? await new ShardZipPublisher().PublishBaseAsync(
+                    ingestor.DatasetKey ?? selectedMonth,
+                    releaseId,
+                    AppConfig.Current.Paths.OutputDir)
+                : publishedInfo?.BaseZip.ToPublication() ?? ZipArtifactPublication.Missing;
+
             AnsiConsole.MarkupLine($"[cyan]5/{totalSteps} Gerando e enviando estatística final...[/]");
             var publication = BuildReleaseInfoPublication(
                 ingestor,
@@ -155,7 +164,8 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                 publishedInfo,
                 publishedLastUpdated,
                 integrationSummaries,
-                moduleShards);
+                moduleShards,
+                baseZip);
             await new ReleaseInfoPublisher().PublishAsync(publication, AppConfig.Current.Paths.OutputDir);
             await integrationOrchestrator.PersistStateAsync(integrationSummaries);
         }
@@ -230,7 +240,8 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
         PublishedInfoSnapshot? publishedInfo,
         string? publishedLastUpdated,
         IReadOnlyList<DataIntegrationRunSummary> integrationSummaries,
-        IReadOnlyDictionary<string, ModuleShardPublication> moduleShards)
+        IReadOnlyDictionary<string, ModuleShardPublication> moduleShards,
+        ZipArtifactPublication baseZip)
     {
         if (receitaChanged)
         {
@@ -243,6 +254,7 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                 AppConfig.Current.Shards.PrefixLength,
                 releaseId,
                 releaseId,
+                baseZip,
                 integrationSummaries,
                 moduleShards);
         }
@@ -264,6 +276,7 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
             AppConfig.Current.Shards.PrefixLength,
             storageReleaseId,
             releaseId,
+            baseZip,
             integrationSummaries,
             moduleShards);
     }

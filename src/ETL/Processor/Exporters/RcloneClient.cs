@@ -331,7 +331,6 @@ public static class RcloneClient
         return await CopyToAsync(remote, localFilePath);
     }
 
-
     public static async Task<bool> CopyToAsync(string remotePath, string localFilePath)
     {
         try
