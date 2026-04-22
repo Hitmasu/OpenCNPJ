@@ -16,29 +16,7 @@ internal sealed class ReleaseInfoPublisher
         string outputRootDir,
         CancellationToken cancellationToken = default)
     {
-        var payload = new
-        {
-            total = publication.Total,
-            last_updated = publication.LastUpdated,
-            zip_available = false,
-            zip_size = 0L,
-            zip_url = "",
-            zip_md5checksum = "",
-            shard_prefix_length = publication.ShardPrefixLength,
-            shard_count = publication.ShardCount,
-            storage_release_id = publication.StorageReleaseId,
-            datasets = BuildDatasetsInfo(publication),
-            shard_index_distribution = "r2",
-            shard_format = "ndjson+binary-index",
-            zip_layout = "disabled",
-            cnpj_type = "string"
-        };
-
-        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = null,
-            WriteIndented = false
-        });
+        var json = Serialize(publication);
 
         var outputDir = Path.Combine(
             DatasetPathResolver.GetDatasetPath(outputRootDir, publication.DatasetKey),
@@ -56,6 +34,31 @@ internal sealed class ReleaseInfoPublisher
         AnsiConsole.MarkupLine("[green]✓ info.json enviado para Storage[/]");
     }
 
+    internal static string SerializeForTest(ReleaseInfoPublication publication) => Serialize(publication);
+
+    private static string Serialize(ReleaseInfoPublication publication)
+    {
+        var payload = new
+        {
+            total = publication.Total,
+            last_updated = publication.LastUpdated,
+            shard_prefix_length = publication.ShardPrefixLength,
+            shard_count = publication.ShardCount,
+            storage_release_id = publication.StorageReleaseId,
+            datasets = BuildDatasetsInfo(publication),
+            shard_index_distribution = "r2",
+            shard_format = "ndjson+binary-index",
+            zip_layout = "per-dataset-shards-v1",
+            cnpj_type = "string"
+        };
+
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = null,
+            WriteIndented = false
+        });
+    }
+
     private static object BuildDatasetsInfo(ReleaseInfoPublication publication)
     {
         var datasets = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -64,7 +67,11 @@ internal sealed class ReleaseInfoPublisher
             {
                 storage_release_id = publication.StorageReleaseId,
                 updated_at = publication.LastUpdated,
-                record_count = publication.Total
+                record_count = publication.Total,
+                zip_available = publication.BaseZip.Available,
+                zip_size = publication.BaseZip.Size,
+                zip_url = publication.BaseZip.Url,
+                zip_md5checksum = publication.BaseZip.Md5Checksum
             }
         };
 
@@ -77,7 +84,11 @@ internal sealed class ReleaseInfoPublisher
                 schema_version = module.SchemaVersion,
                 source_version = module.SourceVersion,
                 updated_at = module.UpdatedAt.ToString("o"),
-                record_count = module.RecordCount
+                record_count = module.RecordCount,
+                zip_available = module.Zip.Available,
+                zip_size = module.Zip.Size,
+                zip_url = module.Zip.Url,
+                zip_md5checksum = module.Zip.Md5Checksum
             };
         }
 

@@ -15,10 +15,6 @@
   const $modalJson = document.getElementById('modal-json');
   const $infoTotal = document.getElementById('info-total');
   const $infoUpdated = document.getElementById('info-updated');
-  const $zipDownload = document.getElementById('zip-download');
-  const $zipSize = document.getElementById('zip-size');
-  const $zipUrl = document.getElementById('zip-url');
-  const $zipMd5 = document.getElementById('zip-md5');
   const $datasetsStatus = document.getElementById('datasets-status');
   const $datasetsBody = document.getElementById('datasets-body');
 
@@ -162,6 +158,17 @@
 
   function clear(el){ if (!el) return; while (el.firstChild) el.removeChild(el.firstChild); }
 
+  function renderDatasetsStatus(count) {
+    if (!$datasetsStatus) return;
+
+    const label = count === 1 ? 'Atualmente temos 1 base publicada.' : `Atualmente temos ${count} bases publicadas.`;
+    $datasetsStatus.innerHTML = [
+      `<span class="datasets-status-line">${label}</span>`,
+      '<span class="datasets-status-line">As bases podem ser baixadas separadamente em arquivos NDJSON.</span>',
+      '<span class="datasets-status-line">Caso queira automatizar, consulte <a href="https://api.opencnpj.org/info" target="_blank" rel="noopener">https://api.opencnpj.org/info</a>.</span>',
+    ].join('');
+  }
+
   function renderDatasets(info) {
     if (!$datasetsBody) return;
 
@@ -172,7 +179,7 @@
       .map((key) => [key, datasets[key]]);
 
     if (entries.length === 0) {
-      if ($datasetsStatus) $datasetsStatus.textContent = 'Nenhuma base publicada foi retornada pelo /info.';
+      if ($datasetsStatus) $datasetsStatus.textContent = 'Nenhuma base publicada foi retornada no momento.';
       return;
     }
 
@@ -186,6 +193,7 @@
       const countCell = document.createElement('td');
       const filterCell = document.createElement('td');
       const filterCode = document.createElement('code');
+      const downloadCell = document.createElement('td');
 
       name.textContent = DATASET_DETAILS[key].name;
       description.className = 'dataset-desc';
@@ -197,20 +205,45 @@
       countCell.textContent = formatCount(dataset?.record_count);
       filterCode.textContent = `datasets=${key}`;
       filterCell.appendChild(filterCode);
+      downloadCell.className = 'dataset-download-cell';
+
+      if (dataset?.zip_url) {
+        const link = document.createElement('a');
+        const sizeMeta = document.createElement('p');
+        const checksumMeta = document.createElement('p');
+        const md5 = dataset?.zip_md5checksum ? String(dataset.zip_md5checksum) : '—';
+
+        link.className = 'btn';
+        link.href = dataset.zip_url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.download = '';
+        link.setAttribute('aria-label', `Baixar dataset ${DATASET_DETAILS[key].name}`);
+        link.innerHTML = '<svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>Baixar';
+
+        sizeMeta.className = 'dataset-download-meta';
+        sizeMeta.textContent = `Tamanho: ${formatBytes(dataset?.zip_size)}`;
+
+        checksumMeta.className = 'dataset-download-meta dataset-download-checksum';
+        checksumMeta.textContent = `MD5: ${md5}`;
+
+        downloadCell.appendChild(link);
+        downloadCell.appendChild(sizeMeta);
+        downloadCell.appendChild(checksumMeta);
+      } else {
+        downloadCell.textContent = 'Indisponível';
+      }
 
       row.appendChild(nameCell);
       row.appendChild(updatedCell);
       row.appendChild(frequencyCell);
       row.appendChild(countCell);
       row.appendChild(filterCell);
+      row.appendChild(downloadCell);
       $datasetsBody.appendChild(row);
     }
 
-    if ($datasetsStatus) {
-      $datasetsStatus.textContent = entries.length === 1
-        ? '1 base publicada no /info.'
-        : `${entries.length} bases publicadas no /info.`;
-    }
+    renderDatasetsStatus(entries.length);
   }
 
   function setActiveTab(which){
@@ -312,21 +345,6 @@
       }
 
       renderDatasets(info);
-
-      // ZIP info
-      if (info.zip_url) {
-        if ($zipDownload) { $zipDownload.href = info.zip_url; }
-        if ($zipUrl) {
-          $zipUrl.href = info.zip_url;
-          $zipUrl.textContent = info.zip_url;
-        }
-      }
-      if (typeof info.zip_size === 'number' && $zipSize) {
-        $zipSize.textContent = `Tamanho: ${formatBytes(info.zip_size)}`;
-      }
-      if (info.zip_md5checksum && $zipMd5) {
-        $zipMd5.textContent = info.zip_md5checksum;
-      }
     } catch {
       if ($datasetsStatus) $datasetsStatus.textContent = 'Não foi possível carregar as bases publicadas no momento.';
     }

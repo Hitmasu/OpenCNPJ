@@ -32,6 +32,7 @@ internal sealed class PublishedInfoClient
         var shardCount = TryGetInt(root, "shard_count");
         var lastUpdated = TryGetString(root, "last_updated");
         var storageReleaseId = TryGetString(root, "storage_release_id");
+        var baseZip = PublishedZipArtifactSnapshot.Missing;
         var moduleShards = new Dictionary<string, PublishedModuleShardSnapshot>(StringComparer.Ordinal);
 
         if (root.TryGetProperty("datasets", out var datasetsElement)
@@ -40,7 +41,12 @@ internal sealed class PublishedInfoClient
             foreach (var moduleProperty in datasetsElement.EnumerateObject())
             {
                 if (string.Equals(moduleProperty.Name, "receita", StringComparison.Ordinal))
+                {
+                    if (moduleProperty.Value.ValueKind == JsonValueKind.Object)
+                        baseZip = TryGetZipSnapshot(moduleProperty.Value);
+
                     continue;
+                }
 
                 if (moduleProperty.Value.ValueKind != JsonValueKind.Object)
                     continue;
@@ -60,7 +66,8 @@ internal sealed class PublishedInfoClient
                     TryGetString(moduleElement, "source_version"),
                     TryGetDateTimeOffset(moduleElement, "updated_at") ?? DateTimeOffset.MinValue,
                     TryGetLong(moduleElement, "record_count") ?? 0,
-                    moduleStorageReleaseId);
+                    moduleStorageReleaseId,
+                    TryGetZipSnapshot(moduleElement));
             }
         }
 
@@ -69,6 +76,7 @@ internal sealed class PublishedInfoClient
             shardCount,
             lastUpdated,
             storageReleaseId,
+            baseZip,
             moduleShards);
     }
 
@@ -116,6 +124,17 @@ internal sealed class PublishedInfoClient
         return value;
     }
 
+    private static bool? TryGetBool(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property)
+            || (property.ValueKind != JsonValueKind.True && property.ValueKind != JsonValueKind.False))
+        {
+            return null;
+        }
+
+        return property.GetBoolean();
+    }
+
     private static DateTimeOffset? TryGetDateTimeOffset(JsonElement element, string propertyName)
     {
         var value = TryGetString(element, propertyName);
@@ -126,6 +145,20 @@ internal sealed class PublishedInfoClient
         }
 
         return dateTimeOffset;
+    }
+
+    private static PublishedZipArtifactSnapshot TryGetZipSnapshot(JsonElement element)
+    {
+        var available = TryGetBool(element, "zip_available") ?? false;
+        var size = TryGetLong(element, "zip_size") ?? 0;
+        var url = TryGetString(element, "zip_url") ?? "";
+        var md5Checksum = TryGetString(element, "zip_md5checksum") ?? "";
+
+        return new PublishedZipArtifactSnapshot(
+            available,
+            size,
+            url,
+            md5Checksum);
     }
 
 }

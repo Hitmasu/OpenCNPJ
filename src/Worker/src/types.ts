@@ -22,6 +22,10 @@ export type RuntimeInfo = {
 export type DatasetInfo = {
   json_property_name?: string;
   storage_release_id?: string;
+  zip_available?: boolean;
+  zip_size?: number;
+  zip_url?: string;
+  zip_md5checksum?: string;
 };
 
 export type DatasetSelection = {

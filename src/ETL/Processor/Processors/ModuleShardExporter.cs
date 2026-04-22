@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Diagnostics;
 using CNPJExporter.Exporters;
 using CNPJExporter.Integrations;
 using CNPJExporter.Processors.Models;
@@ -50,14 +51,20 @@ internal sealed class ModuleShardExporter : IModuleShardExporter
             releaseId.Trim('/'));
         Directory.CreateDirectory(localShardDir);
 
+        AnsiConsole.MarkupLine(
+            $"[cyan]Lendo prefixos do módulo {source.Key.EscapeMarkup()} a partir de {source.ParquetGlob.EscapeMarkup()}...[/]");
         var prefixes = await LoadAllPrefixesAsync(source.ParquetGlob, cancellationToken);
 
         if (prefixes.Count == 0)
         {
+            AnsiConsole.MarkupLine($"[yellow]⚠️ Nenhum prefixo encontrado para o módulo {source.Key.EscapeMarkup()}[/]");
             return new ModuleShardExportResult(localShardDir, []);
         }
 
+        AnsiConsole.MarkupLine(
+            $"[grey]Módulo {source.Key.EscapeMarkup()}:[/] [cyan]{prefixes.Count} prefixos[/] serão materializados no release [cyan]{releaseId.EscapeMarkup()}[/]");
         var generatedPrefixes = await WriteModuleShardsAsync(
+            source.Key,
             source.ParquetGlob,
             prefixes,
             localShardDir,
@@ -92,6 +99,7 @@ internal sealed class ModuleShardExporter : IModuleShardExporter
     }
 
     private static async Task<IReadOnlyList<string>> WriteModuleShardsAsync(
+        string moduleKey,
         string parquetPath,
         IReadOnlyList<string> prefixes,
         string localShardDir,
@@ -112,6 +120,13 @@ internal sealed class ModuleShardExporter : IModuleShardExporter
 
         var writerByPrefix = new Dictionary<string, BinaryIndexedShardWriter>(StringComparer.Ordinal);
         var generatedPrefixes = new SortedSet<string>(StringComparer.Ordinal);
+        var processedRecords = 0L;
+        var progressStopwatch = Stopwatch.StartNew();
+        var lastReported = TimeSpan.Zero;
+        string? lastPrefix = null;
+
+        AnsiConsole.MarkupLine(
+            $"[cyan]Materializando shards do módulo {moduleKey.EscapeMarkup()}...[/] [grey](prefixos: {prefixes.Count})[/]");
 
         try
         {
@@ -121,6 +136,7 @@ internal sealed class ModuleShardExporter : IModuleShardExporter
                 var prefix = reader.GetString(0);
                 var cnpj = reader.GetString(1);
                 var payloadJson = NormalizePayloadJson(cnpj, reader.GetString(2));
+                lastPrefix = prefix;
 
                 if (!writerByPrefix.TryGetValue(prefix, out var writer))
                 {
@@ -128,10 +144,26 @@ internal sealed class ModuleShardExporter : IModuleShardExporter
                         Path.Combine(localShardDir, $"{prefix}{ShardDataExtension}.tmp"),
                         Path.Combine(localShardDir, $"{prefix}{ShardIndexExtension}.tmp"));
                     writerByPrefix[prefix] = writer;
+
+                    if (writerByPrefix.Count == 1 || writerByPrefix.Count % 100 == 0)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"[grey]Módulo {moduleKey.EscapeMarkup()}:[/] [cyan]{writerByPrefix.Count}[/] prefixos com dados encontrados até agora [grey](último: {prefix.EscapeMarkup()})[/]");
+                    }
                 }
 
                 await writer.AppendAsync(cnpj, payloadJson);
                 generatedPrefixes.Add(prefix);
+                processedRecords++;
+
+                if (processedRecords == 1
+                    || processedRecords % 100_000 == 0
+                    || progressStopwatch.Elapsed - lastReported >= TimeSpan.FromSeconds(30))
+                {
+                    lastReported = progressStopwatch.Elapsed;
+                    AnsiConsole.MarkupLine(
+                        $"[grey]Módulo {moduleKey.EscapeMarkup()}:[/] [cyan]{processedRecords:N0}[/] registros serializados [grey](prefixos com dados: {generatedPrefixes.Count}, último prefixo: {(lastPrefix ?? "-").EscapeMarkup()}, tempo: {progressStopwatch.Elapsed:hh\\:mm\\:ss})[/]");
+                }
             }
 
             foreach (var writer in writerByPrefix.Values)
@@ -163,6 +195,9 @@ internal sealed class ModuleShardExporter : IModuleShardExporter
             File.Move(tempData, finalData);
             File.Move(tempIndex, finalIndex);
         }
+
+        AnsiConsole.MarkupLine(
+            $"[grey]Módulo {moduleKey.EscapeMarkup()}:[/] finalização concluída [grey](registros: {processedRecords:N0}, prefixos com dados: {generatedPrefixes.Count}, tempo total: {progressStopwatch.Elapsed:hh\\:mm\\:ss})[/]");
 
         return generatedPrefixes.ToArray();
     }
