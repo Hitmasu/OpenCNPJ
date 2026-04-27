@@ -112,6 +112,7 @@ code{
   padding:18px 6px 0;
   border-top:1px solid var(--border);
 }
+.mobile-support{display:none}
 .github-badge{
   display:inline-flex;
   align-items:center;
@@ -842,11 +843,16 @@ summary:focus-visible{
     margin:2px 0 0;
     padding-top:12px;
   }
+  .wiki-sidebar .sidebar-support{display:none}
   .sidebar-support{
     grid-template-columns:1fr;
     justify-items:center;
     margin-top:12px;
     padding:12px 0 0;
+  }
+  .mobile-support{
+    display:grid;
+    margin:0 18px 56px;
   }
   .sidebar-donation-actions{
     display:flex;

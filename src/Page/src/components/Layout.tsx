@@ -21,6 +21,29 @@ function isActiveGroup(item: { href?: string; children?: { href?: string }[] }, 
   return isActiveLink(item.href, activeRoute) || Boolean(item.children?.some((child) => isActiveLink(child.href, activeRoute)));
 }
 
+function SupportActions({ className = '' }: { className?: string }) {
+  const supportClassName = className ? `sidebar-support ${className}` : 'sidebar-support';
+
+  return (
+    <div className={supportClassName} aria-label="Apoiar o OpenCNPJ">
+      <p className="sidebar-support-text">Contribua para manter o OpenCNPJ online e em evolução.</p>
+      <div className="sidebar-donation-actions">
+        <a className="btn pix" href="https://link.mercadopago.com.br/opencnpj" target="_blank" rel="noopener" aria-label="Doar via Pix">
+          <PixIcon />
+          Pix
+        </a>
+        <a className="btn sponsor" href="https://github.com/sponsors/Hitmasu" target="_blank" rel="noopener">
+          <HeartIcon />
+          Sponsors
+        </a>
+      </div>
+      <div className="sidebar-github">
+        <GitHubStarsBadge />
+      </div>
+    </div>
+  );
+}
+
 export function Layout({ children, activeRoute }: LayoutProps) {
   function handleSkipLink(event: MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
@@ -72,27 +95,14 @@ export function Layout({ children, activeRoute }: LayoutProps) {
             })}
           </nav>
 
-          <div className="sidebar-support" aria-label="Apoiar o OpenCNPJ">
-            <p className="sidebar-support-text">Contribua para manter o OpenCNPJ online e em evolução.</p>
-            <div className="sidebar-donation-actions">
-              <a className="btn pix" href="https://link.mercadopago.com.br/opencnpj" target="_blank" rel="noopener" aria-label="Doar via Pix">
-                <PixIcon />
-                Pix
-              </a>
-              <a className="btn sponsor" href="https://github.com/sponsors/Hitmasu" target="_blank" rel="noopener">
-                <HeartIcon />
-                Sponsors
-              </a>
-            </div>
-            <div className="sidebar-github">
-              <GitHubStarsBadge />
-            </div>
-          </div>
+          <SupportActions />
         </aside>
 
         <main id="conteudo" className="wiki-content docs" tabIndex={-1}>
           {children}
         </main>
+
+        <SupportActions className="mobile-support" />
       </div>
     </>
   );
