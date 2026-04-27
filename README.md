@@ -50,6 +50,15 @@ Os artefatos locais não são apagados automaticamente, exceto quando o pipeline
 
 Sem `-m`, o pipeline escolhe o mês mais recente publicado no share WebDAV da Receita.
 
+### Página estática
+
+- Dentro de `src/Page`:
+  - `npm install`
+  - `npm run dev` para desenvolvimento local
+  - `npm run build` para gerar a versão estática em `src/Page/dist`
+
+A página é implementada em React + TypeScript e continua sendo 100% estática no artefato final. O `index.html` de publicação deve ser o gerado em `src/Page/dist`, não o arquivo fonte usado pelo Vite em `src/Page/index.html`.
+
 ## Publicação
 
 - Os shards no R2 são publicados em releases versionados, por exemplo `files/shards/releases/{release_id}/{prefix}.ndjson`.
