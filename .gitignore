@@ -64,6 +64,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+src/Page/dist/
 
 # OpenCNPJ data outputs
 parquet_data/
