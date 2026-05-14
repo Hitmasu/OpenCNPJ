@@ -23,15 +23,26 @@ internal static class QsaProjection
                                  SUBSTRING(s.data_entrada_sociedade, 7, 2)
                             ELSE COALESCE(s.data_entrada_sociedade, '')
                         END,
-                        identificador_socio := CASE s.identificador_socio
-                            WHEN '1' THEN 'Pessoa Jurídica'
-                            WHEN '2' THEN 'Pessoa Física'
-                            WHEN '3' THEN 'Estrangeiro'
-                            ELSE COALESCE(s.identificador_socio, '')
-                        END,
-                        faixa_etaria := CASE s.faixa_etaria
-                            WHEN '0' THEN 'Não se aplica'
-                            WHEN '1' THEN '0 a 12 anos'
+	                        identificador_socio := CASE s.identificador_socio
+	                            WHEN '1' THEN 'Pessoa Jurídica'
+	                            WHEN '2' THEN 'Pessoa Física'
+	                            WHEN '3' THEN 'Estrangeiro'
+	                            ELSE COALESCE(s.identificador_socio, '')
+	                        END,
+	                        codigo_pais := COALESCE(s.codigo_pais, ''),
+	                        pais := struct_pack(
+	                            codigo := COALESCE(s.codigo_pais, ''),
+	                            descricao := COALESCE(ps.descricao, '')
+	                        ),
+	                        representante_legal := COALESCE(s.representante_legal, ''),
+	                        nome_representante := COALESCE(s.nome_representante, ''),
+	                        qualificacao_representante := struct_pack(
+	                            codigo := COALESCE(s.qualificacao_representante, ''),
+	                            descricao := COALESCE(qr.descricao, '')
+	                        ),
+	                        faixa_etaria := CASE s.faixa_etaria
+	                            WHEN '0' THEN 'Não se aplica'
+	                            WHEN '1' THEN '0 a 12 anos'
                             WHEN '2' THEN '13 a 20 anos'
                             WHEN '3' THEN '21 a 30 anos'
                             WHEN '4' THEN '31 a 40 anos'
@@ -43,10 +54,12 @@ internal static class QsaProjection
                             ELSE COALESCE(s.faixa_etaria, '')
                         END
                     )) as qsa_data
-                FROM {sourceRelation} s
-                LEFT JOIN qualificacao qs ON s.qualificacao_socio = qs.codigo
-                {where}
-                GROUP BY s.cnpj_prefix, s.cnpj_basico
-            )";
+	                FROM {sourceRelation} s
+	                LEFT JOIN qualificacao qs ON s.qualificacao_socio = qs.codigo
+	                LEFT JOIN pais ps ON s.codigo_pais = ps.codigo
+	                LEFT JOIN qualificacao qr ON s.qualificacao_representante = qr.codigo
+	                {where}
+	                GROUP BY s.cnpj_prefix, s.cnpj_basico
+	            )";
     }
 }

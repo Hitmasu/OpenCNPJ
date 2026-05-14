@@ -58,18 +58,26 @@ public sealed class ShardQueryBuilder
             simples_data AS (
                 SELECT * FROM {simplesRelation}
             ),
-            socio_data AS (
-                SELECT * FROM {socioRelation}
-            ),
-            {QsaProjection.BuildCte("socios_data", "socio_data", prefixLiteral)}
-            SELECT {selectCols}
-            FROM estabelecimento_data e
-            LEFT JOIN empresa_data emp ON e.cnpj_basico = emp.cnpj_basico
-            LEFT JOIN simples_data s ON e.cnpj_basico = s.cnpj_basico
-            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
-            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
-            LEFT JOIN socios_data sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
-            WHERE e.cnpj_prefix = '{prefixLiteral}'";
+	            socio_data AS (
+	                SELECT * FROM {socioRelation}
+	            ),
+	            cnae_lookup AS (
+	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
+	                FROM cnae
+	            ),
+	            {QsaProjection.BuildCte("socios_data", "socio_data", prefixLiteral)}
+	            SELECT {selectCols}
+	            FROM estabelecimento_data e
+	            CROSS JOIN cnae_lookup
+	            LEFT JOIN empresa_data emp ON e.cnpj_basico = emp.cnpj_basico
+	            LEFT JOIN simples_data s ON e.cnpj_basico = s.cnpj_basico
+	            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
+	            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
+	            LEFT JOIN motivo mot ON e.motivo_situacao_cadastral = mot.codigo
+	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
+	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
+	            LEFT JOIN socios_data sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
+	            WHERE e.cnpj_prefix = '{prefixLiteral}'";
     }
 
     public string BuildJsonQueryForPrefixBatch(IReadOnlyList<string> prefixes, bool includeCnpjColumn, string jsonAlias)
@@ -89,18 +97,26 @@ public sealed class ShardQueryBuilder
             batch_empresas AS (
                 SELECT * FROM {empresaRelation}
             ),
-            batch_simples AS (
-                SELECT * FROM {simplesRelation}
-            ),
-            {QsaProjection.BuildCte("batch_socios", socioRelation)}
-            SELECT {selectCols}
-            FROM batch_estabelecimentos e
-            LEFT JOIN batch_empresas emp ON e.cnpj_basico = emp.cnpj_basico
-            LEFT JOIN batch_simples s ON e.cnpj_basico = s.cnpj_basico
-            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
-            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
-            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
-            ORDER BY e.cnpj_prefix, cnpj";
+	            batch_simples AS (
+	                SELECT * FROM {simplesRelation}
+	            ),
+	            cnae_lookup AS (
+	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
+	                FROM cnae
+	            ),
+	            {QsaProjection.BuildCte("batch_socios", socioRelation)}
+	            SELECT {selectCols}
+	            FROM batch_estabelecimentos e
+	            CROSS JOIN cnae_lookup
+	            LEFT JOIN batch_empresas emp ON e.cnpj_basico = emp.cnpj_basico
+	            LEFT JOIN batch_simples s ON e.cnpj_basico = s.cnpj_basico
+	            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
+	            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
+	            LEFT JOIN motivo mot ON e.motivo_situacao_cadastral = mot.codigo
+	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
+	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
+	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
+	            ORDER BY e.cnpj_prefix, cnpj";
     }
 
     public string BuildJsonQueryForCnpj(
@@ -130,18 +146,26 @@ public sealed class ShardQueryBuilder
             simples_data AS (
                 SELECT * FROM {simplesRelation}
             ),
-            socio_data AS (
-                SELECT * FROM {socioRelation}
-            ),
-            {QsaProjection.BuildCte("socios_data", "socio_data", prefixLiteral)}
-            SELECT {selectCols}
-            FROM estabelecimento_data e
-            LEFT JOIN empresa_data emp ON e.cnpj_basico = emp.cnpj_basico
-            LEFT JOIN simples_data s ON e.cnpj_basico = s.cnpj_basico
-            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
-            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
-            LEFT JOIN socios_data sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
-            WHERE e.cnpj_prefix = '{prefixLiteral}'
+	            socio_data AS (
+	                SELECT * FROM {socioRelation}
+	            ),
+	            cnae_lookup AS (
+	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
+	                FROM cnae
+	            ),
+	            {QsaProjection.BuildCte("socios_data", "socio_data", prefixLiteral)}
+	            SELECT {selectCols}
+	            FROM estabelecimento_data e
+	            CROSS JOIN cnae_lookup
+	            LEFT JOIN empresa_data emp ON e.cnpj_basico = emp.cnpj_basico
+	            LEFT JOIN simples_data s ON e.cnpj_basico = s.cnpj_basico
+	            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
+	            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
+	            LEFT JOIN motivo mot ON e.motivo_situacao_cadastral = mot.codigo
+	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
+	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
+	            LEFT JOIN socios_data sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
+	            WHERE e.cnpj_prefix = '{prefixLiteral}'
               AND e.cnpj_basico = '{cnpjBasicoLiteral}'
               AND e.cnpj_ordem = '{cnpjOrdemLiteral}'
               AND e.cnpj_dv = '{cnpjDvLiteral}'";

@@ -24,8 +24,8 @@
   "Shards": {
     "PrefixLength": 3,
     "RemoteDir": "shards",
-    "MaxParallelProcessing": 8,
-    "QueryBatchSize": 4
+    "MaxParallelProcessing": 1,
+    "QueryBatchSize": 1
   },
   "Downloader": {
     "ParallelDownloads": 2,

@@ -38,6 +38,21 @@ internal static class JsonProjection
                         THEN string_split(e.cnaes_secundarios, ',')
                         ELSE []
                     END,
+                    cnaes := list_transform(
+                        list_filter(
+                            list_concat(
+                                [COALESCE(e.cnae_principal, '')],
+                                CASE
+                                    WHEN e.cnaes_secundarios IS NOT NULL AND e.cnaes_secundarios != ''
+                                    THEN string_split(e.cnaes_secundarios, ',')
+                                    ELSE []
+                                END),
+                            codigo -> codigo != ''),
+                        codigo -> struct_pack(
+                            codigo := codigo,
+                            descricao := COALESCE(map_extract_value(cnae_lookup.descricoes, codigo), ''),
+                            is_principal := codigo = COALESCE(e.cnae_principal, '')
+                        )),
                     natureza_juridica := COALESCE(nat.descricao, ''),
                     tipo_logradouro := COALESCE(e.tipo_logradouro, ''),
                     logradouro := COALESCE(e.logradouro, ''),
@@ -47,6 +62,7 @@ internal static class JsonProjection
                     cep := COALESCE(e.cep, ''),
                     uf := COALESCE(e.uf, ''),
                     municipio := COALESCE(mun.descricao, ''),
+                    codigo_municipio := COALESCE(e.codigo_municipio, ''),
                     email := COALESCE(e.correio_eletronico, ''),
                     telefones := list_filter([
                         CASE WHEN e.ddd1 IS NOT NULL OR e.telefone1 IS NOT NULL
@@ -63,6 +79,11 @@ internal static class JsonProjection
                         END
                     ], x -> x IS NOT NULL),
                     capital_social := COALESCE(emp.capital_social, ''),
+                    qualificacao_responsavel := struct_pack(
+                        codigo := COALESCE(emp.qualificacao_responsavel, ''),
+                        descricao := COALESCE(qr.descricao, '')
+                    ),
+                    ente_federativo := COALESCE(emp.ente_federativo, ''),
                     porte_empresa := CASE emp.porte_empresa
                         WHEN '00' THEN 'Não informado'
                         WHEN '01' THEN 'Microempresa (ME)'
@@ -71,12 +92,19 @@ internal static class JsonProjection
                         ELSE COALESCE(emp.porte_empresa, '')
                     END,
                     opcao_simples := COALESCE(s.opcao_simples, ''),
-                    data_opcao_simples := CASE 
-                        WHEN s.data_opcao_simples ~ '^[0-9]{8}$' 
-                        THEN SUBSTRING(s.data_opcao_simples, 1, 4) || '-' || 
-                             SUBSTRING(s.data_opcao_simples, 5, 2) || '-' || 
-                             SUBSTRING(s.data_opcao_simples, 7, 2)
-                        ELSE COALESCE(s.data_opcao_simples, '')
+	                    data_opcao_simples := CASE 
+	                        WHEN s.data_opcao_simples ~ '^[0-9]{8}$' 
+	                        THEN SUBSTRING(s.data_opcao_simples, 1, 4) || '-' || 
+	                             SUBSTRING(s.data_opcao_simples, 5, 2) || '-' || 
+	                             SUBSTRING(s.data_opcao_simples, 7, 2)
+	                        ELSE COALESCE(s.data_opcao_simples, '')
+	                    END,
+                    data_exclusao_simples := CASE
+                        WHEN s.data_exclusao_simples ~ '^[0-9]{8}$'
+                        THEN SUBSTRING(s.data_exclusao_simples, 1, 4) || '-' ||
+                             SUBSTRING(s.data_exclusao_simples, 5, 2) || '-' ||
+                             SUBSTRING(s.data_exclusao_simples, 7, 2)
+                        ELSE COALESCE(s.data_exclusao_simples, '')
                     END,
                     opcao_mei := COALESCE(s.opcao_mei, ''),
                     data_opcao_mei := CASE 
@@ -86,5 +114,30 @@ internal static class JsonProjection
                              SUBSTRING(s.data_opcao_mei, 7, 2)
                         ELSE COALESCE(s.data_opcao_mei, '')
                     END,
+                    data_exclusao_mei := CASE
+                        WHEN s.data_exclusao_mei ~ '^[0-9]{8}$'
+                        THEN SUBSTRING(s.data_exclusao_mei, 1, 4) || '-' ||
+                             SUBSTRING(s.data_exclusao_mei, 5, 2) || '-' ||
+                             SUBSTRING(s.data_exclusao_mei, 7, 2)
+                        ELSE COALESCE(s.data_exclusao_mei, '')
+                    END,
+                    motivo_situacao_cadastral := struct_pack(
+                        codigo := COALESCE(e.motivo_situacao_cadastral, ''),
+                        descricao := COALESCE(mot.descricao, '')
+                    ),
+                    nome_cidade_exterior := COALESCE(e.nome_cidade_exterior, ''),
+                    codigo_pais := COALESCE(e.codigo_pais, ''),
+                    pais := struct_pack(
+                        codigo := COALESCE(e.codigo_pais, ''),
+                        descricao := COALESCE(pais_est.descricao, '')
+                    ),
+                    situacao_especial := COALESCE(e.situacao_especial, ''),
+                    data_situacao_especial := CASE
+                        WHEN e.data_situacao_especial ~ '^[0-9]{8}$'
+                        THEN SUBSTRING(e.data_situacao_especial, 1, 4) || '-' ||
+                             SUBSTRING(e.data_situacao_especial, 5, 2) || '-' ||
+                             SUBSTRING(e.data_situacao_especial, 7, 2)
+                        ELSE COALESCE(e.data_situacao_especial, '')
+                    END,
                     QSA := COALESCE(sd.qsa_data, [])";
-}
+    }
