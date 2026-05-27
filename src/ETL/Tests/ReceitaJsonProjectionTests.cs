@@ -9,6 +9,123 @@ namespace ETL.Tests;
 public sealed class ReceitaJsonProjectionTests
 {
     [TestMethod]
+    public void BuildJsonQueryForPrefixBatch_ShouldNotSortEnrichedJsonPayloadInDuckDb()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-receita-query-{Guid.NewGuid():N}");
+        var parquetDir = Path.Combine(tempRoot, "parquet");
+
+        try
+        {
+            CreatePartitionMarker(parquetDir, "estabelecimento", "607");
+            CreatePartitionMarker(parquetDir, "empresa", "607");
+
+            var query = new ShardQueryBuilder(parquetDir)
+                .BuildJsonQueryForPrefixBatch(["607"], includeCnpjColumn: true, jsonAlias: "json_data");
+
+            Assert.IsFalse(
+                query.Contains("ORDER BY", StringComparison.OrdinalIgnoreCase),
+                "O batch de Receita deve streamar o JSON enriquecido sem sort global no DuckDB; o índice binário ordena apenas CNPJ/offset/length.");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void BuildJsonQueryForCnpj_ShouldFilterQsaCteByCnpjBasico()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-receita-query-{Guid.NewGuid():N}");
+        var parquetDir = Path.Combine(tempRoot, "parquet");
+
+        try
+        {
+            CreatePartitionMarker(parquetDir, "estabelecimento", "607");
+            CreatePartitionMarker(parquetDir, "empresa", "607");
+            CreatePartitionMarker(parquetDir, "socio", "607");
+
+            var query = new ShardQueryBuilder(parquetDir)
+                .BuildJsonQueryForCnpj("607", "60701190", "0001", "04", "json_output");
+
+            StringAssert.Contains(query, "s.cnpj_basico = '60701190'");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void BuildJsonQueryForPrefixBatch_ShouldFilterShardInputsByCnpjBasicoRange()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-receita-query-{Guid.NewGuid():N}");
+        var parquetDir = Path.Combine(tempRoot, "parquet");
+
+        try
+        {
+            CreatePartitionMarker(parquetDir, "estabelecimento", "607");
+            CreatePartitionMarker(parquetDir, "empresa", "607");
+            CreatePartitionMarker(parquetDir, "simples", "607");
+            CreatePartitionMarker(parquetDir, "socio", "607");
+
+            var query = new ShardQueryBuilder(parquetDir)
+                .BuildJsonQueryForPrefixBatch(
+                    ["607"],
+                    includeCnpjColumn: true,
+                    jsonAlias: "json_data",
+                    cnpjBasicoStartInclusive: "60700000",
+                    cnpjBasicoEndExclusive: "60710000");
+
+            StringAssert.Contains(query, "cnpj_basico >= '60700000'");
+            StringAssert.Contains(query, "cnpj_basico < '60710000'");
+            StringAssert.Contains(query, "s.cnpj_basico >= '60700000'");
+            StringAssert.Contains(query, "s.cnpj_basico < '60710000'");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void BuildJsonQueryForPrefixBatch_ShouldUseMaterializedQsaWhenAvailable()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-receita-query-{Guid.NewGuid():N}");
+        var parquetDir = Path.Combine(tempRoot, "parquet");
+
+        try
+        {
+            CreatePartitionMarker(parquetDir, "estabelecimento", "607");
+            CreatePartitionMarker(parquetDir, "empresa", "607");
+            CreatePartitionMarker(parquetDir, "simples", "607");
+            CreatePartitionMarker(parquetDir, "socio", "607");
+            CreatePartitionMarker(parquetDir, "qsa", "607");
+
+            var query = new ShardQueryBuilder(parquetDir)
+                .BuildJsonQueryForPrefixBatch(
+                    ["607"],
+                    includeCnpjColumn: true,
+                    jsonAlias: "json_data",
+                    cnpjBasicoStartInclusive: "60700000",
+                    cnpjBasicoEndExclusive: "60710000");
+
+            StringAssert.Contains(query, "/qsa/cnpj_prefix=607/");
+            StringAssert.Contains(query, "SELECT cnpj_prefix, cnpj_basico, qsa_data");
+            Assert.IsFalse(
+                query.Contains("/socio/cnpj_prefix=607/", StringComparison.OrdinalIgnoreCase),
+                "Com QSA materializado, a geração de shard não deve ler a partição bruta de sócios.");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task BuildJsonQueryForCnpj_ShouldExposeEnrichedReceitaFields()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-receita-json-{Guid.NewGuid():N}");
@@ -194,4 +311,11 @@ public sealed class ReceitaJsonProjectionTests
     }
 
     private static string EscapeSqlLiteral(string value) => value.Replace("'", "''");
+
+    private static void CreatePartitionMarker(string parquetDir, string tableName, string prefix)
+    {
+        var partitionDir = Path.Combine(parquetDir, tableName, $"cnpj_prefix={prefix}");
+        Directory.CreateDirectory(partitionDir);
+        File.WriteAllBytes(Path.Combine(partitionDir, "part.parquet"), []);
+    }
 }

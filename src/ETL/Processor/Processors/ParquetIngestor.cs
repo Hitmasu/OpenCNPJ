@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using CNPJExporter.Configuration;
@@ -17,6 +18,9 @@ public class ParquetIngestor : IDisposable
 {
     private const string ShardDataExtension = ".ndjson";
     private const string ShardIndexExtension = ".index.bin";
+    private const int CnpjBasicoLength = 8;
+    private const int CnpjBasicoMaxExclusive = 100_000_000;
+    private const int DefaultShardRangeFanOut = 5;
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly string? _datasetKey;
     private readonly string _dataSource;
@@ -77,7 +81,9 @@ public class ParquetIngestor : IDisposable
 
     public async Task ConvertCsvsToParquet()
     {
-        await _parquetProcessor.ConvertCsvsToParquetAsync(_connection);
+        await _parquetProcessor.ConvertCsvsToParquetAsync(
+            _connection,
+            AppConfig.Current.Shards.QsaMaterializationRangeFanOut);
     }
 
     public async Task ExportAndUploadToStorage(
@@ -195,18 +201,26 @@ public class ParquetIngestor : IDisposable
     {
         Directory.CreateDirectory(outputDir);
 
+        if (!_shardQueryBuilder.HasPartitionData("estabelecimento", prefixStr))
+            return false;
+
         var finalDataPath = Path.Combine(outputDir, $"{prefixStr}{ShardDataExtension}");
         var finalIndexPath = Path.Combine(outputDir, $"{prefixStr}{ShardIndexExtension}");
         var tempDataPath = finalDataPath + ".tmp";
         var tempIndexPath = finalIndexPath + ".tmp";
 
-        var rowCount = await WriteShardNdjsonAsync(
-            connection,
-            prefixStr,
-            tempDataPath,
-            tempIndexPath);
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [prefixStr] = 0
+        };
 
-        if (rowCount == 0)
+        using (var writer = new BinaryIndexedShardWriter(tempDataPath, tempIndexPath))
+        {
+            await ExportPrefixChunkedAsync(connection, prefixStr, writer, counts);
+            await writer.FlushAsync();
+        }
+
+        if (counts[prefixStr] == 0)
         {
             DeleteIfExists(tempDataPath);
             DeleteIfExists(tempIndexPath);
@@ -259,20 +273,13 @@ public class ParquetIngestor : IDisposable
                 writers[prefix] = writer;
             }
 
-            var query = _shardQueryBuilder.BuildJsonQueryForPrefixBatch(availablePrefixes, includeCnpjColumn: true, jsonAlias: "json_data");
-            await using var cmd = connection.CreateCommand();
-            cmd.CommandText = query;
-
-            await using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            foreach (var prefix in availablePrefixes)
             {
-                var prefix = reader.GetString(0);
-                var cnpj = reader.GetString(1);
-                var jsonData = reader.GetString(2);
-
-                var writer = writers[prefix];
-                await writer.AppendAsync(cnpj, jsonData);
-                counts[prefix]++;
+                await ExportPrefixChunkedAsync(
+                    connection,
+                    prefix,
+                    writers[prefix],
+                    counts);
             }
 
             foreach (var prefix in availablePrefixes)
@@ -301,6 +308,61 @@ public class ParquetIngestor : IDisposable
         }
 
         return counts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value > 0, StringComparer.Ordinal);
+    }
+
+    private async Task ExportPrefixChunkedAsync(
+        DuckDBConnection connection,
+        string prefix,
+        BinaryIndexedShardWriter writer,
+        IDictionary<string, int> counts)
+    {
+        foreach (var range in BuildInitialShardRanges(prefix))
+            await ExportPrefixRangeAsync(connection, prefix, writer, counts, range);
+    }
+
+    private async Task ExportPrefixRangeAsync(
+        DuckDBConnection connection,
+        string prefix,
+        BinaryIndexedShardWriter writer,
+        IDictionary<string, int> counts,
+        CnpjBasicoRange? range)
+    {
+        var wroteAny = false;
+
+        try
+        {
+            var query = _shardQueryBuilder.BuildJsonQueryForPrefixBatch(
+                [prefix],
+                includeCnpjColumn: true,
+                jsonAlias: "json_data",
+                cnpjBasicoStartInclusive: range?.StartLiteral,
+                cnpjBasicoEndExclusive: range?.EndLiteral);
+
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = query;
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var cnpj = reader.GetString(1);
+                var jsonData = reader.GetString(2);
+
+                wroteAny = true;
+                await writer.AppendAsync(cnpj, jsonData);
+                counts[prefix]++;
+            }
+        }
+        catch (Exception ex) when (range is { CanSplit: true } failedRange
+                                   && !wroteAny
+                                   && IsDuckDbOutOfMemory(ex))
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow]DuckDB excedeu memória no shard {prefix} faixa {failedRange.ToString().EscapeMarkup()}; subdividindo.[/]");
+
+            var fanOut = GetShardRangeFanOut();
+            foreach (var childRange in SplitRange(failedRange, fanOut))
+                await ExportPrefixRangeAsync(connection, prefix, writer, counts, childRange);
+        }
     }
 
     /// <summary>
@@ -450,35 +512,6 @@ public class ParquetIngestor : IDisposable
         }
     }
 
-    private async Task<int> WriteShardNdjsonAsync(
-        DuckDBConnection connection,
-        string prefixStr,
-        string outputPath,
-        string indexPath)
-    {
-        var query = _shardQueryBuilder.BuildJsonQueryForPrefix(prefixStr, includeCnpjColumn: true, jsonAlias: "json_data");
-
-        if (query is null)
-            return 0;
-
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = query;
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-        using var writer = new BinaryIndexedShardWriter(outputPath, indexPath);
-
-        while (await reader.ReadAsync())
-        {
-            await writer.AppendAsync(reader.GetString(0), reader.GetString(1));
-        }
-
-        await writer.FlushAsync();
-
-        if (writer.RecordCount == 0)
-            return 0;
-        return writer.RecordCount;
-    }
-
     private static string? ResolveDatasetKey(string? datasetKey)
     {
         if (DatasetPathResolver.IsDatasetKey(datasetKey))
@@ -583,6 +616,86 @@ public class ParquetIngestor : IDisposable
             .Where(path => File.Exists(Path.Combine(localShardDir, path)))
             .ToArray();
 
+    private static bool TryBuildFullCnpjBasicoRange(string prefix, out CnpjBasicoRange range)
+    {
+        range = default;
+
+        if (prefix.Length > CnpjBasicoLength
+            || !int.TryParse(prefix, NumberStyles.None, CultureInfo.InvariantCulture, out var prefixNumber))
+        {
+            return false;
+        }
+
+        var multiplier = Pow10(CnpjBasicoLength - prefix.Length);
+        var startInclusive = prefixNumber * multiplier;
+        var endExclusive = Math.Min(CnpjBasicoMaxExclusive, startInclusive + multiplier);
+
+        range = new CnpjBasicoRange(startInclusive, endExclusive);
+        return true;
+    }
+
+    private static IReadOnlyList<CnpjBasicoRange> SplitRange(CnpjBasicoRange range, int fanOut)
+    {
+        var width = range.EndExclusive - range.StartInclusive;
+        if (width <= 1)
+            return [range];
+
+        fanOut = Math.Max(2, fanOut);
+        var chunkWidth = Math.Max(1, (width + fanOut - 1) / fanOut);
+        var ranges = new List<CnpjBasicoRange>();
+
+        for (var start = range.StartInclusive; start < range.EndExclusive; start += chunkWidth)
+        {
+            var end = Math.Min(range.EndExclusive, start + chunkWidth);
+            ranges.Add(new CnpjBasicoRange(start, end));
+        }
+
+        return ranges;
+    }
+
+    private static int GetShardRangeFanOut()
+    {
+        return NormalizeShardRangeFanOut(AppConfig.Current.Shards.QueryRangeFanOut <= 0
+            ? DefaultShardRangeFanOut
+            : AppConfig.Current.Shards.QueryRangeFanOut);
+    }
+
+    private static int NormalizeShardRangeFanOut(int fanOut) => Math.Max(2, fanOut);
+
+    private static IReadOnlyList<CnpjBasicoRange?> BuildInitialShardRanges(string prefix)
+    {
+        if (!TryBuildFullCnpjBasicoRange(prefix, out var fullRange))
+            return [null];
+
+        return SplitRange(fullRange, GetShardRangeFanOut())
+            .Select(range => (CnpjBasicoRange?)range)
+            .ToArray();
+    }
+
+    internal static IReadOnlyList<string> BuildInitialShardRangesForTest(string prefix, int fanOut)
+    {
+        if (!TryBuildFullCnpjBasicoRange(prefix, out var fullRange))
+            return ["<unbounded>"];
+
+        return SplitRange(fullRange, NormalizeShardRangeFanOut(fanOut))
+            .Select(static range => range.ToString())
+            .ToArray();
+    }
+
+    private static int Pow10(int exponent)
+    {
+        var result = 1;
+        for (var i = 0; i < exponent; i++)
+            result *= 10;
+        return result;
+    }
+
+    private static bool IsDuckDbOutOfMemory(Exception ex)
+    {
+        return ex.Message.Contains("Out of Memory", StringComparison.OrdinalIgnoreCase)
+               || ex.InnerException is not null && IsDuckDbOutOfMemory(ex.InnerException);
+    }
+
     private string GetDatasetOutputDir(string outputRootDir)
     {
         return DatasetPathResolver.GetDatasetPath(outputRootDir, _datasetKey);
@@ -614,6 +727,24 @@ public class ParquetIngestor : IDisposable
     }
 
     internal int GetShardCountFromFilesystemForPublication() => _shardQueryBuilder.GetShardCount();
+
+    private readonly record struct CnpjBasicoRange(int StartInclusive, int EndExclusive)
+    {
+        public string StartLiteral => StartInclusive.ToString($"D{CnpjBasicoLength}", CultureInfo.InvariantCulture);
+
+        public string? EndLiteral => EndExclusive >= CnpjBasicoMaxExclusive
+            ? null
+            : EndExclusive.ToString($"D{CnpjBasicoLength}", CultureInfo.InvariantCulture);
+
+        public bool CanSplit => EndExclusive - StartInclusive > 1;
+
+        public override string ToString()
+        {
+            return EndLiteral is null
+                ? $"[{StartLiteral}, max]"
+                : $"[{StartLiteral}, {EndLiteral})";
+        }
+    }
 
     private static List<List<string>> BuildShardPrefixBatches(IReadOnlyList<string> prefixes, int batchSize)
     {

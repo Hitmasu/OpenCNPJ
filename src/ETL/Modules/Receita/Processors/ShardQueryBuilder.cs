@@ -43,7 +43,6 @@ public sealed class ShardQueryBuilder
         var estabelecimentoRelation = BuildPartitionedReadSql("estabelecimento", prefixes, allowEmpty: false);
         var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
         var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
-        var socioRelation = BuildPartitionedReadSql("socio", prefixes, allowEmpty: true);
         var selectCols = includeCnpjColumn
             ? "e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv as cnpj, to_json(struct_pack(\n" + JsonProjection.Fields +
               $"\n)) as {jsonAlias}"
@@ -58,14 +57,11 @@ public sealed class ShardQueryBuilder
             simples_data AS (
                 SELECT * FROM {simplesRelation}
             ),
-	            socio_data AS (
-	                SELECT * FROM {socioRelation}
-	            ),
 	            cnae_lookup AS (
 	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
 	                FROM cnae
 	            ),
-	            {QsaProjection.BuildCte("socios_data", "socio_data", prefixLiteral)}
+	            {BuildQsaCte("socios_data", prefixes, prefixLiteral: prefixLiteral)}
 	            SELECT {selectCols}
 	            FROM estabelecimento_data e
 	            CROSS JOIN cnae_lookup
@@ -80,31 +76,42 @@ public sealed class ShardQueryBuilder
 	            WHERE e.cnpj_prefix = '{prefixLiteral}'";
     }
 
-    public string BuildJsonQueryForPrefixBatch(IReadOnlyList<string> prefixes, bool includeCnpjColumn, string jsonAlias)
+    public string BuildJsonQueryForPrefixBatch(
+        IReadOnlyList<string> prefixes,
+        bool includeCnpjColumn,
+        string jsonAlias,
+        string? cnpjBasicoStartInclusive = null,
+        string? cnpjBasicoEndExclusive = null)
     {
+        var cnpjBasicoStartLiteral = string.IsNullOrWhiteSpace(cnpjBasicoStartInclusive)
+            ? null
+            : Sql.EscapeLiteral(cnpjBasicoStartInclusive);
+        var cnpjBasicoEndLiteral = string.IsNullOrWhiteSpace(cnpjBasicoEndExclusive)
+            ? null
+            : Sql.EscapeLiteral(cnpjBasicoEndExclusive);
+        var cnpjBasicoWhere = BuildCnpjBasicoWhereClause(cnpjBasicoStartLiteral, cnpjBasicoEndLiteral);
         var estabelecimentoRelation = BuildPartitionedReadSql("estabelecimento", prefixes, allowEmpty: false);
         var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
         var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
-        var socioRelation = BuildPartitionedReadSql("socio", prefixes, allowEmpty: true);
         var selectCols = includeCnpjColumn
             ? "e.cnpj_prefix as shard_prefix, e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv as cnpj, to_json(struct_pack(\n" +
               JsonProjection.Fields + $"\n)) as {jsonAlias}"
             : $"e.cnpj_prefix as shard_prefix, to_json(struct_pack(\n{JsonProjection.Fields}\n)) as {jsonAlias}";
 
         return $@"WITH batch_estabelecimentos AS (
-                SELECT * FROM {estabelecimentoRelation}
+                SELECT * FROM {estabelecimentoRelation}{cnpjBasicoWhere}
             ),
             batch_empresas AS (
-                SELECT * FROM {empresaRelation}
+                SELECT * FROM {empresaRelation}{cnpjBasicoWhere}
             ),
 	            batch_simples AS (
-	                SELECT * FROM {simplesRelation}
+	                SELECT * FROM {simplesRelation}{cnpjBasicoWhere}
 	            ),
 	            cnae_lookup AS (
 	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
 	                FROM cnae
 	            ),
-	            {QsaProjection.BuildCte("batch_socios", socioRelation)}
+	            {BuildQsaCte("batch_socios", prefixes, cnpjBasicoStartInclusive: cnpjBasicoStartLiteral, cnpjBasicoEndExclusive: cnpjBasicoEndLiteral)}
 	            SELECT {selectCols}
 	            FROM batch_estabelecimentos e
 	            CROSS JOIN cnae_lookup
@@ -115,8 +122,7 @@ public sealed class ShardQueryBuilder
 	            LEFT JOIN motivo mot ON e.motivo_situacao_cadastral = mot.codigo
 	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
 	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
-	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
-	            ORDER BY e.cnpj_prefix, cnpj";
+	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico";
     }
 
     public string BuildJsonQueryForCnpj(
@@ -134,7 +140,6 @@ public sealed class ShardQueryBuilder
         var estabelecimentoRelation = BuildPartitionedReadSql("estabelecimento", prefixes, allowEmpty: false);
         var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
         var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
-        var socioRelation = BuildPartitionedReadSql("socio", prefixes, allowEmpty: true);
         var selectCols = $"to_json(struct_pack(\n" + JsonProjection.Fields + $"\n)) as {jsonAlias}";
 
         return $@"WITH estabelecimento_data AS (
@@ -146,14 +151,11 @@ public sealed class ShardQueryBuilder
             simples_data AS (
                 SELECT * FROM {simplesRelation}
             ),
-	            socio_data AS (
-	                SELECT * FROM {socioRelation}
-	            ),
 	            cnae_lookup AS (
 	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
 	                FROM cnae
 	            ),
-	            {QsaProjection.BuildCte("socios_data", "socio_data", prefixLiteral)}
+	            {BuildQsaCte("socios_data", prefixes, prefixLiteral, cnpjBasicoLiteral)}
 	            SELECT {selectCols}
 	            FROM estabelecimento_data e
 	            CROSS JOIN cnae_lookup
@@ -187,19 +189,63 @@ public sealed class ShardQueryBuilder
         }
     }
 
-    private string BuildPartitionedReadSql(string tableName, IReadOnlyList<string> prefixes, bool allowEmpty)
+    private string? TryBuildPartitionedReadSql(string tableName, IReadOnlyList<string> prefixes)
     {
         var globs = GetPartitionGlobPaths(tableName, prefixes).ToList();
-        if (globs.Count == 0)
-        {
-            if (!allowEmpty)
-                throw new InvalidOperationException($"Nenhuma partição Parquet encontrada para {tableName}.");
+        return globs.Count == 0
+            ? null
+            : BuildReadParquetSql(globs);
+    }
 
-            return BuildEmptyShardTableSql(tableName);
-        }
+    private string BuildPartitionedReadSql(string tableName, IReadOnlyList<string> prefixes, bool allowEmpty)
+    {
+        var readSql = TryBuildPartitionedReadSql(tableName, prefixes);
+        if (readSql is not null)
+            return readSql;
 
+        if (!allowEmpty)
+            throw new InvalidOperationException($"Nenhuma partição Parquet encontrada para {tableName}.");
+
+        return BuildEmptyShardTableSql(tableName);
+    }
+
+    private static string BuildReadParquetSql(IReadOnlyList<string> globs)
+    {
         var pathListSql = string.Join(", ", globs.Select(path => $"'{Sql.EscapeLiteral(path)}'"));
         return $"read_parquet([{pathListSql}], hive_partitioning = true, hive_types = {{'cnpj_prefix': VARCHAR}})";
+    }
+
+    private string BuildQsaCte(
+        string cteName,
+        IReadOnlyList<string> prefixes,
+        string? prefixLiteral = null,
+        string? cnpjBasicoLiteral = null,
+        string? cnpjBasicoStartInclusive = null,
+        string? cnpjBasicoEndExclusive = null)
+    {
+        var materializedQsaRelation = TryBuildPartitionedReadSql("qsa", prefixes);
+        if (materializedQsaRelation is not null)
+        {
+            var where = BuildQsaMaterializedWhereClause(
+                prefixLiteral,
+                cnpjBasicoLiteral,
+                cnpjBasicoStartInclusive,
+                cnpjBasicoEndExclusive);
+
+            return $@"{cteName} AS (
+                SELECT cnpj_prefix, cnpj_basico, qsa_data
+                FROM {materializedQsaRelation}{where}
+            )";
+        }
+
+        var socioRelation = BuildPartitionedReadSql("socio", prefixes, allowEmpty: true);
+        return QsaProjection.BuildCte(
+            cteName,
+            socioRelation,
+            prefixLiteral,
+            cnpjBasicoLiteral,
+            cnpjBasicoStartInclusive,
+            cnpjBasicoEndExclusive);
     }
 
     private static string BuildEmptyShardTableSql(string tableName)
@@ -216,5 +262,39 @@ public sealed class ShardQueryBuilder
                 "(SELECT CAST(NULL AS VARCHAR) AS cnpj_basico, CAST(NULL AS VARCHAR) AS cnpj_ordem, CAST(NULL AS VARCHAR) AS cnpj_dv, CAST(NULL AS VARCHAR) AS identificador_matriz_filial, CAST(NULL AS VARCHAR) AS nome_fantasia, CAST(NULL AS VARCHAR) AS situacao_cadastral, CAST(NULL AS VARCHAR) AS data_situacao_cadastral, CAST(NULL AS VARCHAR) AS motivo_situacao_cadastral, CAST(NULL AS VARCHAR) AS nome_cidade_exterior, CAST(NULL AS VARCHAR) AS codigo_pais, CAST(NULL AS VARCHAR) AS data_inicio_atividade, CAST(NULL AS VARCHAR) AS cnae_principal, CAST(NULL AS VARCHAR) AS cnaes_secundarios, CAST(NULL AS VARCHAR) AS tipo_logradouro, CAST(NULL AS VARCHAR) AS logradouro, CAST(NULL AS VARCHAR) AS numero, CAST(NULL AS VARCHAR) AS complemento, CAST(NULL AS VARCHAR) AS bairro, CAST(NULL AS VARCHAR) AS cep, CAST(NULL AS VARCHAR) AS uf, CAST(NULL AS VARCHAR) AS codigo_municipio, CAST(NULL AS VARCHAR) AS ddd1, CAST(NULL AS VARCHAR) AS telefone1, CAST(NULL AS VARCHAR) AS ddd2, CAST(NULL AS VARCHAR) AS telefone2, CAST(NULL AS VARCHAR) AS ddd_fax, CAST(NULL AS VARCHAR) AS fax, CAST(NULL AS VARCHAR) AS correio_eletronico, CAST(NULL AS VARCHAR) AS situacao_especial, CAST(NULL AS VARCHAR) AS data_situacao_especial, CAST(NULL AS VARCHAR) AS cnpj_prefix WHERE FALSE)",
             _ => throw new InvalidOperationException($"Tabela shard não suportada: {tableName}")
         };
+    }
+
+    private static string BuildCnpjBasicoWhereClause(string? startInclusiveLiteral, string? endExclusiveLiteral)
+    {
+        var predicates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(startInclusiveLiteral))
+            predicates.Add($"cnpj_basico >= '{startInclusiveLiteral}'");
+        if (!string.IsNullOrWhiteSpace(endExclusiveLiteral))
+            predicates.Add($"cnpj_basico < '{endExclusiveLiteral}'");
+
+        return predicates.Count == 0
+            ? string.Empty
+            : $" WHERE {string.Join(" AND ", predicates)}";
+    }
+
+    private static string BuildQsaMaterializedWhereClause(
+        string? prefixLiteral,
+        string? cnpjBasicoLiteral,
+        string? startInclusiveLiteral,
+        string? endExclusiveLiteral)
+    {
+        var predicates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(prefixLiteral))
+            predicates.Add($"cnpj_prefix = '{prefixLiteral}'");
+        if (!string.IsNullOrWhiteSpace(cnpjBasicoLiteral))
+            predicates.Add($"cnpj_basico = '{cnpjBasicoLiteral}'");
+        if (!string.IsNullOrWhiteSpace(startInclusiveLiteral))
+            predicates.Add($"cnpj_basico >= '{startInclusiveLiteral}'");
+        if (!string.IsNullOrWhiteSpace(endExclusiveLiteral))
+            predicates.Add($"cnpj_basico < '{endExclusiveLiteral}'");
+
+        return predicates.Count == 0
+            ? string.Empty
+            : $" WHERE {string.Join(" AND ", predicates)}";
     }
 }

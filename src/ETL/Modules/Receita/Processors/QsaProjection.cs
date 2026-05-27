@@ -2,14 +2,30 @@ namespace CNPJExporter.Modules.Receita.Processors;
 
 internal static class QsaProjection
 {
-    public static string BuildCte(string cteName, string sourceRelation, string? prefixLiteral = null)
+    public static string BuildSelect(
+        string sourceRelation,
+        string qualificacaoRelation = "qualificacao",
+        string paisRelation = "pais",
+        string? prefixLiteral = null,
+        string? cnpjBasicoLiteral = null,
+        string? cnpjBasicoStartInclusive = null,
+        string? cnpjBasicoEndExclusive = null)
     {
-        var where = string.IsNullOrWhiteSpace(prefixLiteral)
-            ? ""
-            : $"WHERE s.cnpj_prefix = '{prefixLiteral}'";
+        var predicates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(prefixLiteral))
+            predicates.Add($"s.cnpj_prefix = '{prefixLiteral}'");
+        if (!string.IsNullOrWhiteSpace(cnpjBasicoLiteral))
+            predicates.Add($"s.cnpj_basico = '{cnpjBasicoLiteral}'");
+        if (!string.IsNullOrWhiteSpace(cnpjBasicoStartInclusive))
+            predicates.Add($"s.cnpj_basico >= '{cnpjBasicoStartInclusive}'");
+        if (!string.IsNullOrWhiteSpace(cnpjBasicoEndExclusive))
+            predicates.Add($"s.cnpj_basico < '{cnpjBasicoEndExclusive}'");
 
-        return $@"{cteName} AS (
-                SELECT 
+        var where = predicates.Count == 0
+            ? ""
+            : $"WHERE {string.Join(" AND ", predicates)}";
+
+        return $@"SELECT 
                     s.cnpj_prefix,
                     s.cnpj_basico,
                     array_agg(struct_pack(
@@ -55,11 +71,23 @@ internal static class QsaProjection
                         END
                     )) as qsa_data
 	                FROM {sourceRelation} s
-	                LEFT JOIN qualificacao qs ON s.qualificacao_socio = qs.codigo
-	                LEFT JOIN pais ps ON s.codigo_pais = ps.codigo
-	                LEFT JOIN qualificacao qr ON s.qualificacao_representante = qr.codigo
+	                LEFT JOIN {qualificacaoRelation} qs ON s.qualificacao_socio = qs.codigo
+	                LEFT JOIN {paisRelation} ps ON s.codigo_pais = ps.codigo
+	                LEFT JOIN {qualificacaoRelation} qr ON s.qualificacao_representante = qr.codigo
 	                {where}
-	                GROUP BY s.cnpj_prefix, s.cnpj_basico
+	                GROUP BY s.cnpj_prefix, s.cnpj_basico";
+    }
+
+    public static string BuildCte(
+        string cteName,
+        string sourceRelation,
+        string? prefixLiteral = null,
+        string? cnpjBasicoLiteral = null,
+        string? cnpjBasicoStartInclusive = null,
+        string? cnpjBasicoEndExclusive = null)
+    {
+        return $@"{cteName} AS (
+                {BuildSelect(sourceRelation, prefixLiteral: prefixLiteral, cnpjBasicoLiteral: cnpjBasicoLiteral, cnpjBasicoStartInclusive: cnpjBasicoStartInclusive, cnpjBasicoEndExclusive: cnpjBasicoEndExclusive)}
 	            )";
     }
 }
