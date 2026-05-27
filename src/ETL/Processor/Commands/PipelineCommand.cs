@@ -27,6 +27,10 @@ public class PipelineSettings : CommandSettings
     [Description("Identificador do release no storage. Se omitido, o ETL gera um hash curto automaticamente.")]
     public string? ReleaseId { get; init; }
 
+    [CommandOption("--skip-zip")]
+    [Description("Não gera nem publica data.zip. Útil para execuções locais de teste/performance.")]
+    public bool SkipZip { get; init; }
+
 }
 
 public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
@@ -141,14 +145,18 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                 AnsiConsole.MarkupLine($"[cyan]4/{totalSteps} Publicando módulos alterados com shards completos ({releaseId})...[/]");
             }
 
-            var moduleShards = await new ModuleShardPublisher().PublishAsync(
+            IShardZipPublisher zipPublisher = settings.SkipZip
+                ? new NoopShardZipPublisher()
+                : new ShardZipPublisher();
+
+            var moduleShards = await new ModuleShardPublisher(zipPublisher: zipPublisher).PublishAsync(
                 releaseId,
                 integrationSummaries,
                 publishedInfo,
                 AppConfig.Current.Paths.OutputDir);
 
             var baseZip = receitaChanged
-                ? await new ShardZipPublisher().PublishBaseAsync(
+                ? await zipPublisher.PublishBaseAsync(
                     ingestor.DatasetKey ?? selectedMonth,
                     releaseId,
                     AppConfig.Current.Paths.OutputDir)

@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Text;
 using CNPJExporter.Processors;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -53,6 +55,63 @@ public sealed class ShardReleasePlanTests
     public void InfoJsonEncoding_ShouldNotEmitUtf8Bom()
     {
         Assert.AreEqual(0, ParquetIngestor.InfoJsonEncodingForTest.GetPreamble().Length);
+    }
+
+    [TestMethod]
+    public async Task BinaryIndexedShardWriter_ShouldSortIndexEntriesByCnpj()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"opencnpj-index-sort-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var dataPath = Path.Combine(tempDir, "607.ndjson");
+        var indexPath = Path.Combine(tempDir, "607.index.bin");
+
+        try
+        {
+            using (var writer = new BinaryIndexedShardWriter(dataPath, indexPath))
+            {
+                await writer.AppendAsync("60700000000002", """{"cnpj":"60700000000002"}""");
+                await writer.AppendAsync("60700000000001", """{"cnpj":"60700000000001","nome":"Sócia"}""");
+                await writer.FlushAsync();
+            }
+
+            var indexBytes = await File.ReadAllBytesAsync(indexPath);
+            Assert.AreEqual(2u, BinaryPrimitives.ReadUInt32LittleEndian(indexBytes.AsSpan(4, sizeof(uint))));
+
+            var firstCnpj = Encoding.ASCII.GetString(indexBytes, 8, 14);
+            var secondCnpj = Encoding.ASCII.GetString(indexBytes, 8 + 26, 14);
+            Assert.AreEqual("60700000000001", firstCnpj);
+            Assert.AreEqual("60700000000002", secondCnpj);
+
+            var firstOffset = BinaryPrimitives.ReadUInt64LittleEndian(indexBytes.AsSpan(8 + 14, sizeof(ulong)));
+            var firstLength = BinaryPrimitives.ReadUInt32LittleEndian(indexBytes.AsSpan(8 + 14 + sizeof(ulong), sizeof(uint)));
+            var dataBytes = await File.ReadAllBytesAsync(dataPath);
+            var firstPayload = Encoding.UTF8.GetString(dataBytes.AsSpan((int)firstOffset, (int)firstLength));
+            StringAssert.Contains(firstPayload, "60700000000001");
+            StringAssert.Contains(firstPayload, "Sócia");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void BuildInitialShardRangesForTest_ShouldPreSplitNumericPrefix()
+    {
+        var ranges = ParquetIngestor.BuildInitialShardRangesForTest("607", 5)
+            .Select(range => range.ToString())
+            .ToArray();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "[60700000, 60720000)",
+                "[60720000, 60740000)",
+                "[60740000, 60760000)",
+                "[60760000, 60780000)",
+                "[60780000, 60800000)"
+            },
+            ranges);
     }
 
     private static async Task WriteShardAsync(string directory, string prefix, IReadOnlyList<string> cnpjs)

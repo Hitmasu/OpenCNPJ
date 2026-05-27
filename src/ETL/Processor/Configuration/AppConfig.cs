@@ -45,6 +45,8 @@ public class AppConfig
         public int PrefixLength { get; set; } = 3;
         public int MaxParallelProcessing { get; set; } = 0;
         public int QueryBatchSize { get; set; } = 4;
+        public int QueryRangeFanOut { get; set; } = 5;
+        public int QsaMaterializationRangeFanOut { get; set; } = 2;
         public string RemoteDir { get; set; } = "shards";
     }
 
