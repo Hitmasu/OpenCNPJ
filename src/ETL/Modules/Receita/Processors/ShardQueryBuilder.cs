@@ -125,6 +125,201 @@ public sealed class ShardQueryBuilder
 	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico";
     }
 
+    public string BuildColumnarQueryForPrefixBatch(IReadOnlyList<string> prefixes)
+    {
+        var estabelecimentoRelation = BuildPartitionedReadSql("estabelecimento", prefixes, allowEmpty: false);
+        var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
+        var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
+
+        return $@"WITH batch_estabelecimentos AS (
+                SELECT * FROM {estabelecimentoRelation}
+            ),
+            batch_empresas AS (
+                SELECT * FROM {empresaRelation}
+            ),
+	            batch_simples AS (
+	                SELECT * FROM {simplesRelation}
+	            ),
+	            cnae_lookup AS (
+	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
+	                FROM cnae
+	            ),
+	            {BuildQsaCte("batch_socios", prefixes)}
+	            SELECT
+                    e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv AS cnpj,
+                    TRY_CAST(e.cnpj_prefix AS INTEGER) AS cnpj_prefix,
+                    COALESCE(emp.razao_social, '') AS razao_social,
+                    COALESCE(e.nome_fantasia, '') AS nome_fantasia,
+                    CASE LPAD(e.situacao_cadastral, 2, '0')
+                        WHEN '01' THEN 'Nula'
+                        WHEN '02' THEN 'Ativa'
+                        WHEN '03' THEN 'Suspensa'
+                        WHEN '04' THEN 'Inapta'
+                        WHEN '08' THEN 'Baixada'
+                        ELSE COALESCE(e.situacao_cadastral, '')
+                    END AS situacao_cadastral,
+                    CASE
+                        WHEN e.data_situacao_cadastral ~ '^[0-9]{{8}}$'
+                        THEN TRY_CAST(SUBSTRING(e.data_situacao_cadastral, 1, 4) || '-' ||
+                                      SUBSTRING(e.data_situacao_cadastral, 5, 2) || '-' ||
+                                      SUBSTRING(e.data_situacao_cadastral, 7, 2) AS DATE)
+                        ELSE TRY_CAST(NULLIF(e.data_situacao_cadastral, '') AS DATE)
+                    END AS data_situacao_cadastral,
+                    CASE e.identificador_matriz_filial
+                        WHEN '1' THEN 'Matriz'
+                        WHEN '2' THEN 'Filial'
+                        ELSE COALESCE(e.identificador_matriz_filial, '')
+                    END AS matriz_filial,
+                    CASE
+                        WHEN e.data_inicio_atividade ~ '^[0-9]{{8}}$'
+                        THEN TRY_CAST(SUBSTRING(e.data_inicio_atividade, 1, 4) || '-' ||
+                                      SUBSTRING(e.data_inicio_atividade, 5, 2) || '-' ||
+                                      SUBSTRING(e.data_inicio_atividade, 7, 2) AS DATE)
+                        ELSE TRY_CAST(NULLIF(e.data_inicio_atividade, '') AS DATE)
+                    END AS data_inicio_atividade,
+                    COALESCE(e.cnae_principal, '') AS cnae_principal,
+                    CASE
+                        WHEN e.cnaes_secundarios IS NOT NULL AND e.cnaes_secundarios != ''
+                        THEN string_split(e.cnaes_secundarios, ',')
+                        ELSE []
+                    END AS cnaes_secundarios,
+                    list_transform(
+                        list_filter(
+                            list_concat(
+                                [COALESCE(e.cnae_principal, '')],
+                                CASE
+                                    WHEN e.cnaes_secundarios IS NOT NULL AND e.cnaes_secundarios != ''
+                                    THEN string_split(e.cnaes_secundarios, ',')
+                                    ELSE []
+                                END),
+                            codigo -> codigo != ''),
+                        codigo -> struct_pack(
+                            codigo := codigo,
+                            descricao := COALESCE(map_extract_value(cnae_lookup.descricoes, codigo), ''),
+                            is_principal := codigo = COALESCE(e.cnae_principal, '')
+                        )) AS cnaes,
+                    COALESCE(nat.descricao, '') AS natureza_juridica,
+                    COALESCE(e.tipo_logradouro, '') AS tipo_logradouro,
+                    COALESCE(e.logradouro, '') AS logradouro,
+                    COALESCE(e.numero, '') AS numero,
+                    COALESCE(e.complemento, '') AS complemento,
+                    COALESCE(e.bairro, '') AS bairro,
+                    COALESCE(e.cep, '') AS cep,
+                    COALESCE(e.uf, '') AS uf,
+                    COALESCE(mun.descricao, '') AS municipio,
+                    COALESCE(e.codigo_municipio, '') AS codigo_municipio,
+                    COALESCE(e.correio_eletronico, '') AS email,
+                    list_filter([
+                        CASE WHEN e.ddd1 IS NOT NULL OR e.telefone1 IS NOT NULL
+                             THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := COALESCE(e.telefone1, ''), is_fax := false)
+                             ELSE NULL
+                        END,
+                        CASE WHEN e.ddd2 IS NOT NULL OR e.telefone2 IS NOT NULL
+                             THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := COALESCE(e.telefone2, ''), is_fax := false)
+                             ELSE NULL
+                        END,
+                        CASE WHEN e.ddd_fax IS NOT NULL OR e.fax IS NOT NULL
+                             THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := COALESCE(e.fax, ''), is_fax := true)
+                             ELSE NULL
+                        END
+                    ], telefone -> telefone IS NOT NULL) AS telefones,
+                    TRY_CAST(REPLACE(NULLIF(emp.capital_social, ''), ',', '.') AS DECIMAL(18, 2)) AS capital_social,
+                    struct_pack(
+                        codigo := COALESCE(emp.qualificacao_responsavel, ''),
+                        descricao := COALESCE(qr.descricao, '')
+                    ) AS qualificacao_responsavel,
+                    COALESCE(emp.ente_federativo, '') AS ente_federativo,
+                    CASE emp.porte_empresa
+                        WHEN '00' THEN 'Não informado'
+                        WHEN '01' THEN 'Microempresa (ME)'
+                        WHEN '03' THEN 'Empresa de Pequeno Porte (EPP)'
+                        WHEN '05' THEN 'Demais'
+                        ELSE COALESCE(emp.porte_empresa, '')
+                    END AS porte_empresa,
+                    CASE
+                        WHEN UPPER(COALESCE(s.opcao_simples, '')) = 'S' THEN true
+                        WHEN UPPER(COALESCE(s.opcao_simples, '')) = 'N' THEN false
+                        ELSE NULL
+                    END AS opcao_simples,
+                    CASE
+                        WHEN s.data_opcao_simples ~ '^[0-9]{{8}}$'
+                        THEN TRY_CAST(SUBSTRING(s.data_opcao_simples, 1, 4) || '-' ||
+                                      SUBSTRING(s.data_opcao_simples, 5, 2) || '-' ||
+                                      SUBSTRING(s.data_opcao_simples, 7, 2) AS DATE)
+                        ELSE TRY_CAST(NULLIF(s.data_opcao_simples, '') AS DATE)
+                    END AS data_opcao_simples,
+                    CASE
+                        WHEN s.data_exclusao_simples ~ '^[0-9]{{8}}$'
+                        THEN TRY_CAST(SUBSTRING(s.data_exclusao_simples, 1, 4) || '-' ||
+                                      SUBSTRING(s.data_exclusao_simples, 5, 2) || '-' ||
+                                      SUBSTRING(s.data_exclusao_simples, 7, 2) AS DATE)
+                        ELSE TRY_CAST(NULLIF(s.data_exclusao_simples, '') AS DATE)
+                    END AS data_exclusao_simples,
+                    CASE
+                        WHEN UPPER(COALESCE(s.opcao_mei, '')) = 'S' THEN true
+                        WHEN UPPER(COALESCE(s.opcao_mei, '')) = 'N' THEN false
+                        ELSE NULL
+                    END AS opcao_mei,
+                    CASE
+                        WHEN s.data_opcao_mei ~ '^[0-9]{{8}}$'
+                        THEN TRY_CAST(SUBSTRING(s.data_opcao_mei, 1, 4) || '-' ||
+                                      SUBSTRING(s.data_opcao_mei, 5, 2) || '-' ||
+                                      SUBSTRING(s.data_opcao_mei, 7, 2) AS DATE)
+                        ELSE TRY_CAST(NULLIF(s.data_opcao_mei, '') AS DATE)
+                    END AS data_opcao_mei,
+                    CASE
+                        WHEN s.data_exclusao_mei ~ '^[0-9]{{8}}$'
+                        THEN TRY_CAST(SUBSTRING(s.data_exclusao_mei, 1, 4) || '-' ||
+                                      SUBSTRING(s.data_exclusao_mei, 5, 2) || '-' ||
+                                      SUBSTRING(s.data_exclusao_mei, 7, 2) AS DATE)
+                        ELSE TRY_CAST(NULLIF(s.data_exclusao_mei, '') AS DATE)
+                    END AS data_exclusao_mei,
+                    struct_pack(
+                        codigo := COALESCE(e.motivo_situacao_cadastral, ''),
+                        descricao := COALESCE(mot.descricao, '')
+                    ) AS motivo_situacao_cadastral,
+                    COALESCE(e.nome_cidade_exterior, '') AS nome_cidade_exterior,
+                    COALESCE(e.codigo_pais, '') AS codigo_pais,
+                    struct_pack(
+                        codigo := COALESCE(e.codigo_pais, ''),
+                        descricao := COALESCE(pais_est.descricao, '')
+                    ) AS pais,
+                    COALESCE(e.situacao_especial, '') AS situacao_especial,
+                    CASE
+                        WHEN e.data_situacao_especial ~ '^[0-9]{{8}}$'
+                        THEN TRY_CAST(SUBSTRING(e.data_situacao_especial, 1, 4) || '-' ||
+                                      SUBSTRING(e.data_situacao_especial, 5, 2) || '-' ||
+                                      SUBSTRING(e.data_situacao_especial, 7, 2) AS DATE)
+                        ELSE TRY_CAST(NULLIF(e.data_situacao_especial, '') AS DATE)
+                    END AS data_situacao_especial,
+                    COALESCE(
+                        list_transform(sd.qsa_data, socio -> struct_pack(
+                            nome_socio := socio.nome_socio,
+                            cnpj_cpf_socio := socio.cnpj_cpf_socio,
+                            qualificacao_socio := socio.qualificacao_socio,
+                            data_entrada_sociedade := TRY_CAST(NULLIF(socio.data_entrada_sociedade, '') AS DATE),
+                            identificador_socio := socio.identificador_socio,
+                            codigo_pais := socio.codigo_pais,
+                            pais := socio.pais,
+                            representante_legal := socio.representante_legal,
+                            nome_representante := socio.nome_representante,
+                            qualificacao_representante := socio.qualificacao_representante,
+                            faixa_etaria := socio.faixa_etaria
+                        )),
+                        []
+                    ) AS QSA
+	            FROM batch_estabelecimentos e
+	            CROSS JOIN cnae_lookup
+	            LEFT JOIN batch_empresas emp ON e.cnpj_basico = emp.cnpj_basico
+	            LEFT JOIN batch_simples s ON e.cnpj_basico = s.cnpj_basico
+	            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
+	            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
+	            LEFT JOIN motivo mot ON e.motivo_situacao_cadastral = mot.codigo
+	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
+	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
+	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico";
+    }
+
     public string BuildJsonQueryForCnpj(
         string prefix,
         string cnpjBasico,

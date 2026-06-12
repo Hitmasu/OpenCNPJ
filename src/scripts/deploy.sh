@@ -146,6 +146,79 @@ read_config_value() {
   ' "$ETL_CONFIG" "$expression"
 }
 
+read_bigquery_enabled() {
+  if [[ -n "${OPENCNPJ_BIGQUERY_ENABLED:-}" ]]; then
+    case "${OPENCNPJ_BIGQUERY_ENABLED,,}" in
+      true)
+        printf 'true\n'
+        return 0
+        ;;
+      false)
+        printf 'false\n'
+        return 0
+        ;;
+      *)
+        echo "OPENCNPJ_BIGQUERY_ENABLED deve ser true ou false." >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  read_config_value "BigQuery.Enabled"
+}
+
+read_bigquery_project_id() {
+  if [[ -n "${OPENCNPJ_BIGQUERY_PROJECT_ID:-}" ]]; then
+    printf '%s\n' "$OPENCNPJ_BIGQUERY_PROJECT_ID"
+    return 0
+  fi
+
+  read_config_value "BigQuery.ProjectId"
+}
+
+require_bigquery_command_if_enabled() {
+  local enabled
+  enabled="$(read_bigquery_enabled 2>/dev/null || printf 'false')"
+  if [[ "$enabled" != "true" ]]; then
+    log "BigQuery não habilitado; publicação/atualização de tabelas será ignorada."
+    return 0
+  fi
+
+  local executable
+  executable="$(read_config_value "BigQuery.BqExecutable" 2>/dev/null || printf 'bq')"
+  if [[ -z "$executable" ]]; then
+    executable="bq"
+  fi
+
+  local project_id
+  local dataset
+  local location
+  project_id="$(read_bigquery_project_id 2>/dev/null || true)"
+  dataset="$(read_config_value "BigQuery.Dataset" 2>/dev/null || true)"
+  location="$(read_config_value "BigQuery.Location" 2>/dev/null || true)"
+  if [[ -z "$project_id" ]]; then
+    echo "BigQuery.ProjectId ou OPENCNPJ_BIGQUERY_PROJECT_ID é obrigatório quando BigQuery.Enabled=true." >&2
+    exit 1
+  fi
+  if [[ -z "$dataset" ]]; then
+    echo "BigQuery.Dataset é obrigatório quando BigQuery.Enabled=true." >&2
+    exit 1
+  fi
+
+  require_command "$executable"
+
+  local bq_args=()
+  if [[ -n "$location" ]]; then
+    bq_args+=("--location=${location}")
+  fi
+
+  log "Validando BigQuery em ${project_id}:${dataset}"
+  if ! "$executable" "${bq_args[@]}" show --format=none "${project_id}:${dataset}" >/dev/null 2>&1; then
+    echo "Não foi possível validar BigQuery em ${project_id}:${dataset}. Verifique autenticação, permissões e existência do dataset." >&2
+    exit 1
+  fi
+}
+
 json_field() {
   local payload="$1"
   local field="$2"
@@ -498,6 +571,8 @@ capture_current_info() {
     return 0
   fi
 }
+
+require_bigquery_command_if_enabled
 
 if [[ -z "$RELEASE_ID" ]]; then
   RELEASE_ID="$(generate_release_id)"

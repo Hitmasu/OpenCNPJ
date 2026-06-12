@@ -33,11 +33,52 @@ require_file() {
   fi
 }
 
-read_remote_name() {
+read_config_value() {
+  local expression="$1"
   node -e '
     const fs = require("node:fs");
     const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const remoteBase = config?.Rclone?.RemoteBase;
+    const expression = process.argv[2].split(".");
+    let current = config;
+    for (const part of expression) current = current?.[part];
+    if (current == null) process.exit(2);
+    process.stdout.write(String(current));
+  ' "$ETL_CONFIG" "$expression"
+}
+
+read_bigquery_enabled() {
+  if [[ -n "${OPENCNPJ_BIGQUERY_ENABLED:-}" ]]; then
+    case "${OPENCNPJ_BIGQUERY_ENABLED,,}" in
+      true)
+        printf 'true\n'
+        return 0
+        ;;
+      false)
+        printf 'false\n'
+        return 0
+        ;;
+      *)
+        echo "OPENCNPJ_BIGQUERY_ENABLED deve ser true ou false." >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  read_config_value "BigQuery.Enabled"
+}
+
+read_bigquery_project_id() {
+  if [[ -n "${OPENCNPJ_BIGQUERY_PROJECT_ID:-}" ]]; then
+    printf '%s\n' "$OPENCNPJ_BIGQUERY_PROJECT_ID"
+    return 0
+  fi
+
+  read_config_value "BigQuery.ProjectId"
+}
+
+read_remote_name() {
+  node -e '
+    const remoteBase = process.argv[1];
     if (typeof remoteBase !== "string" || remoteBase.length === 0) {
       process.exit(1);
     }
@@ -48,7 +89,7 @@ read_remote_name() {
     }
 
     process.stdout.write(remoteBase.slice(0, separator));
-  ' "$ETL_CONFIG"
+  ' "$(read_config_value "Rclone.RemoteBase")"
 }
 
 require_rclone_remote() {
@@ -65,6 +106,43 @@ require_rclone_remote() {
     echo "Remote obrigatório do rclone não encontrado: ${remote_label}" >&2
     exit 1
   fi
+}
+
+activate_bigquery_credentials_if_configured() {
+  local enabled
+  enabled="$(read_bigquery_enabled 2>/dev/null || printf 'false')"
+  if [[ "$enabled" != "true" ]]; then
+    return 0
+  fi
+
+  if [[ -z "${OPENCNPJ_GOOGLE_CREDENTIALS_BASE64:-}" ]]; then
+    log "OPENCNPJ_GOOGLE_CREDENTIALS_BASE64 não configurado; usando credenciais já disponíveis para o bq."
+    return 0
+  fi
+
+  local project_id
+  project_id="$(read_bigquery_project_id 2>/dev/null || true)"
+  if [[ -z "$project_id" ]]; then
+    echo "BigQuery.ProjectId ou OPENCNPJ_BIGQUERY_PROJECT_ID é obrigatório quando BigQuery.Enabled=true." >&2
+    exit 1
+  fi
+
+  require_command gcloud
+  TMP_GOOGLE_CREDENTIALS="$(mktemp /tmp/google-credentials.XXXXXX.json)"
+  if ! printf '%s' "$OPENCNPJ_GOOGLE_CREDENTIALS_BASE64" | base64 -d > "$TMP_GOOGLE_CREDENTIALS" 2>/dev/null; then
+    echo "OPENCNPJ_GOOGLE_CREDENTIALS_BASE64 inválido; não foi possível decodificar a credencial Google." >&2
+    exit 1
+  fi
+
+  chmod 600 "$TMP_GOOGLE_CREDENTIALS"
+  export CLOUDSDK_CORE_DISABLE_PROMPTS="${CLOUDSDK_CORE_DISABLE_PROMPTS:-1}"
+  gcloud auth activate-service-account \
+    --key-file="$TMP_GOOGLE_CREDENTIALS" \
+    --project="$project_id" \
+    --quiet >/dev/null
+  rm -f "$TMP_GOOGLE_CREDENTIALS"
+  TMP_GOOGLE_CREDENTIALS=""
+  log "Credenciais BigQuery ativadas via OPENCNPJ_GOOGLE_CREDENTIALS_BASE64"
 }
 
 if ! [[ "$CHECK_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [[ "$CHECK_INTERVAL_SECONDS" -le 0 ]]; then
@@ -93,9 +171,13 @@ fi
 require_env CLOUDFLARE_API_TOKEN
 
 TMP_RCLONE_CONFIG=""
+TMP_GOOGLE_CREDENTIALS=""
 cleanup() {
   if [[ -n "$TMP_RCLONE_CONFIG" && -f "$TMP_RCLONE_CONFIG" ]]; then
     rm -f "$TMP_RCLONE_CONFIG"
+  fi
+  if [[ -n "$TMP_GOOGLE_CREDENTIALS" && -f "$TMP_GOOGLE_CREDENTIALS" ]]; then
+    rm -f "$TMP_GOOGLE_CREDENTIALS"
   fi
 }
 trap cleanup EXIT
@@ -117,6 +199,7 @@ fi
 
 RCLONE_REMOTE_NAME="$(read_remote_name)"
 require_rclone_remote "$RCLONE_REMOTE_NAME"
+activate_bigquery_credentials_if_configured
 
 if [[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
   log "CLOUDFLARE_ACCOUNT_ID configurado"

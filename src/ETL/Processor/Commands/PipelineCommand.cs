@@ -5,11 +5,15 @@ using CNPJExporter.Modules.Receita;
 using CNPJExporter.Modules.Receita.Downloaders;
 using CNPJExporter.Processors.Models;
 using CNPJExporter.Processors;
+using CNPJExporter.Processors.BigQuery;
 using CNPJExporter.Utils;
 using System.Security.Cryptography;
 using System.Text;
 using Spectre.Console;
 using Spectre.Console.Cli;
+using CnoBigQueryParquetExporter = CNPJExporter.Modules.Cno.BigQueryParquetExporter;
+using ReceitaBigQueryParquetExporter = CNPJExporter.Modules.Receita.BigQueryParquetExporter;
+using RntrcBigQueryParquetExporter = CNPJExporter.Modules.Rntrc.BigQueryParquetExporter;
 
 namespace CNPJExporter.Commands;
 
@@ -37,7 +41,11 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
 {
     public override async Task<int> ExecuteAsync(CommandContext context, PipelineSettings settings)
     {
-        var totalSteps = settings.CleanupOnSuccess ? 6 : 5;
+        var bigQueryEnabled = ShouldRunBigQuery(
+            AppConfig.Current.BigQuery,
+            message => AnsiConsole.MarkupLine($"[yellow]{message.EscapeMarkup()}[/]"));
+
+        var totalSteps = 5 + (bigQueryEnabled ? 1 : 0) + (settings.CleanupOnSuccess ? 1 : 0);
         var currentMonth = DatasetPublicationPolicy.GetCurrentMonth();
         var receitaIntegration = new DataIntegration();
         receitaIntegration.Descriptor.Validate();
@@ -162,7 +170,30 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                     AppConfig.Current.Paths.OutputDir)
                 : publishedInfo?.BaseZip.ToPublication() ?? ZipArtifactPublication.Missing;
 
-            AnsiConsole.MarkupLine($"[cyan]5/{totalSteps} Gerando e enviando estatística final...[/]");
+            var releaseInfoStep = 5;
+            if (bigQueryEnabled)
+            {
+                AnsiConsole.MarkupLine($"[cyan]{releaseInfoStep}/{totalSteps} Atualizando BigQuery...[/]");
+                if (receitaChanged)
+                {
+                    var receitaParquetRoot = DatasetPathResolver.GetDatasetPath(
+                        AppConfig.Current.Paths.ParquetDir,
+                        selectedMonth);
+                    await new ReceitaBigQueryParquetExporter(
+                        receitaParquetRoot,
+                        AppConfig.Current.Shards.PrefixLength)
+                        .MaterializeAsync(selectedMonth);
+                }
+
+                var bigQueryPlan = BigQueryPublicationPlanner.Build(
+                    AppConfig.Current.BigQuery,
+                    releaseId,
+                    await BuildBigQuerySourcesAsync(selectedMonth, receitaChanged, integrationSummaries));
+                await new BigQueryPublisher().PublishAsync(bigQueryPlan);
+                releaseInfoStep++;
+            }
+
+            AnsiConsole.MarkupLine($"[cyan]{releaseInfoStep}/{totalSteps} Gerando e enviando estatística final...[/]");
             var publication = BuildReleaseInfoPublication(
                 ingestor,
                 selectedMonth,
@@ -180,7 +211,7 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
 
         if (settings.CleanupOnSuccess)
         {
-            AnsiConsole.MarkupLine($"[cyan]6/{totalSteps} Removendo insumos locais de {selectedMonth}...[/]");
+            AnsiConsole.MarkupLine($"[cyan]{totalSteps}/{totalSteps} Removendo insumos locais de {selectedMonth}...[/]");
             await LocalArtifactCleaner.CleanupDatasetArtifactsAsync(selectedMonth);
             AnsiConsole.MarkupLine($"[green]✓ Insumos locais de {selectedMonth} removidos[/]");
         }
@@ -195,6 +226,17 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
         return DatasetPublicationPolicy.NoNewDatasetExitCode;
     }
 
+    internal static bool ShouldRunBigQuery(
+        AppConfig.BigQuerySettings settings,
+        Action<string> warningSink)
+    {
+        if (settings.Enabled)
+            return true;
+
+        warningSink("BigQuery não habilitado em config.json; atualização/publicação de tabelas no BigQuery será ignorada.");
+        return false;
+    }
+
     private static string ResolveLocalBaseDatasetKey(string? publishedMonth, string currentMonth)
     {
         return DatasetPathResolver.ResolveLatestLocalDatasetKey(AppConfig.Current.Paths)
@@ -206,6 +248,38 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
     {
         var paths = AppConfig.Current.Paths;
         return new DataIntegrationPaths(paths.DataDir, paths.ParquetDir, paths.OutputDir, paths.DownloadDir);
+    }
+
+    private static async Task<IReadOnlyList<BigQueryParquetSource>> BuildBigQuerySourcesAsync(
+        string selectedMonth,
+        bool receitaChanged,
+        IReadOnlyList<DataIntegrationRunSummary> integrationSummaries)
+    {
+        var sources = new List<BigQueryParquetSource>();
+
+        if (receitaChanged)
+        {
+            var receitaParquetRoot = DatasetPathResolver.GetDatasetPath(
+                AppConfig.Current.Paths.ParquetDir,
+                selectedMonth);
+            sources.Add(ReceitaBigQueryParquetExporter.GetSource(receitaParquetRoot));
+        }
+
+        foreach (var source in DataIntegrationShardSource.FromRunSummaries(integrationSummaries))
+        {
+            var bigQuerySource = source.Key switch
+            {
+                CnoBigQueryParquetExporter.TableName => await new CnoBigQueryParquetExporter(source.ParquetGlob)
+                    .MaterializeAsync(),
+                RntrcBigQueryParquetExporter.TableName => await new RntrcBigQueryParquetExporter(source.ParquetGlob)
+                    .MaterializeAsync(),
+                _ => new BigQueryParquetSource(source.Key, [source.ParquetGlob])
+            };
+
+            sources.Add(bigQuerySource);
+        }
+
+        return sources;
     }
 
     private static bool RequiresModuleShardBootstrap(
