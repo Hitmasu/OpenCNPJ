@@ -48,4 +48,10 @@ export const libraries: Library[] = [
     repository: 'github.com/gustavogomesn/python-opencnpj',
     href: 'https://github.com/gustavogomesn/python-opencnpj',
   },
+  {
+    language: 'Node.js',
+    author: 'José Eduardo',
+    repository: 'github.com/jos3duardo/cnpj-ws',
+    href: 'https://github.com/jos3duardo/cnpj-ws',
+  },
 ];
