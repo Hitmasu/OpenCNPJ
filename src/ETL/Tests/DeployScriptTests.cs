@@ -34,6 +34,72 @@ public sealed class DeployScriptTests
     }
 
     [TestMethod]
+    public void Deploy_ShouldNotForceReceitaMonthByDefault()
+    {
+        var script = File.ReadAllText(FindDeployScript());
+
+        StringAssert.Contains(
+            script,
+            "MONTH=\"\"");
+        Assert.IsFalse(
+            script.Contains("MONTH=\"2026-", StringComparison.Ordinal),
+            "deploy.sh must not force a Receita month; --month should only be used when passed explicitly.");
+        Assert.IsTrue(
+            script.Contains("if [[ -n \"$MONTH\" ]]; then", StringComparison.Ordinal),
+            "deploy.sh must keep --month conditional.");
+    }
+
+    [TestMethod]
+    public void Deploy_ShouldRequireBigQueryCommandOnlyWhenBigQueryIsEnabled()
+    {
+        var script = File.ReadAllText(FindDeployScript());
+        var functionIndex = script.IndexOf("require_bigquery_command_if_enabled()", StringComparison.Ordinal);
+        Assert.IsTrue(functionIndex >= 0, "deploy.sh must define a conditional BigQuery command check.");
+
+        var function = script[functionIndex..];
+        var nextFunctionIndex = function.IndexOf("\njson_field()", StringComparison.Ordinal);
+        if (nextFunctionIndex >= 0)
+            function = function[..nextFunctionIndex];
+
+        Assert.IsTrue(
+            function.Contains("BigQuery.Enabled", StringComparison.Ordinal),
+            "deploy.sh must be able to read the BigQuery enabled flag from ETL config.");
+        Assert.IsTrue(
+            script.Contains("OPENCNPJ_BIGQUERY_ENABLED", StringComparison.Ordinal),
+            "deploy.sh must accept the BigQuery enabled flag from the deployment environment.");
+        Assert.IsTrue(
+            function.Contains("read_bigquery_enabled", StringComparison.Ordinal),
+            "deploy.sh must resolve the BigQuery enabled flag through the override-aware helper.");
+        Assert.IsTrue(
+            function.Contains("BigQuery.BqExecutable", StringComparison.Ordinal),
+            "deploy.sh must honor the configured bq executable.");
+        Assert.IsTrue(
+            function.Contains("BigQuery não habilitado", StringComparison.Ordinal),
+            "deploy.sh must warn and continue when BigQuery is disabled.");
+        Assert.IsTrue(
+            function.Contains("BigQuery.ProjectId", StringComparison.Ordinal),
+            "deploy.sh must validate ProjectId before running the ETL when BigQuery is enabled.");
+        Assert.IsTrue(
+            function.Contains("OPENCNPJ_BIGQUERY_PROJECT_ID", StringComparison.Ordinal),
+            "deploy.sh must accept the BigQuery project id from the deployment environment.");
+        Assert.IsTrue(
+            function.Contains("BigQuery.Dataset", StringComparison.Ordinal),
+            "deploy.sh must validate Dataset before running the ETL when BigQuery is enabled.");
+        Assert.IsTrue(
+            function.Contains("BigQuery.Location", StringComparison.Ordinal),
+            "deploy.sh must honor the configured BigQuery location during validation.");
+        Assert.IsTrue(
+            function.Contains("require_command \"$executable\"", StringComparison.Ordinal),
+            "deploy.sh must require bq only after BigQuery is enabled.");
+        Assert.IsTrue(
+            function.Contains("show --format=none \"${project_id}:${dataset}\"", StringComparison.Ordinal),
+            "deploy.sh must validate ambient authentication and dataset access using the configured project.");
+        Assert.IsFalse(
+            function.Contains("GOOGLE_" + "APPLICATION_" + "CREDENTIALS", StringComparison.Ordinal),
+            "deploy.sh must not require a key file.");
+    }
+
+    [TestMethod]
     public void CleanupDatasetArtifacts_ShouldPreserveParquetDirectory()
     {
         var script = File.ReadAllText(FindDeployScript());
@@ -235,6 +301,31 @@ public sealed class DeployScriptTests
         Assert.IsFalse(
             script.Contains("--release-id", StringComparison.Ordinal),
             "docker-entrypoint.sh should let deploy.sh generate a fresh release id only when there is work to publish.");
+    }
+
+    [TestMethod]
+    public void DockerEntrypoint_ShouldActivateBigQueryCredentialsFromBase64Environment()
+    {
+        var script = File.ReadAllText(FindDockerEntrypointScript());
+
+        Assert.IsTrue(
+            script.Contains("OPENCNPJ_GOOGLE_CREDENTIALS_BASE64", StringComparison.Ordinal),
+            "docker-entrypoint.sh must accept BigQuery credentials from a Dokploy secret env.");
+        Assert.IsTrue(
+            script.Contains("OPENCNPJ_BIGQUERY_ENABLED", StringComparison.Ordinal),
+            "docker-entrypoint.sh must activate BigQuery credentials when BigQuery is enabled by env.");
+        Assert.IsTrue(
+            script.Contains("base64 -d", StringComparison.Ordinal),
+            "docker-entrypoint.sh must decode the credentials only at runtime.");
+        Assert.IsTrue(
+            script.Contains("gcloud auth activate-service-account", StringComparison.Ordinal),
+            "docker-entrypoint.sh must activate the decoded credentials for bq.");
+        Assert.IsTrue(
+            script.Contains("rm -f \"$TMP_GOOGLE_CREDENTIALS\"", StringComparison.Ordinal),
+            "docker-entrypoint.sh must remove the temporary credential file after activation.");
+        Assert.IsFalse(
+            script.Contains("GOOGLE_" + "APPLICATION_" + "CREDENTIALS", StringComparison.Ordinal),
+            "docker-entrypoint.sh must not require a mounted credential file.");
     }
 
     [TestMethod]

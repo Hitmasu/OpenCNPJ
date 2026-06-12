@@ -15,6 +15,7 @@ Projeto aberto para baixar, processar e publicar dados públicos das empresas do
 
 - `.NET SDK 10.0+`
 - `rclone` instalado e autenticado no seu storage (ex.: Backblaze, R2, S3, Azure Storage, ...).
+- `bq` instalado e autenticado somente quando `BigQuery.Enabled=true`.
 - Espaço em disco e boa conexão (a primeira execução pode levar tempo -- dias até).
 
 ## Configuração
@@ -22,12 +23,16 @@ Projeto aberto para baixar, processar e publicar dados públicos das empresas do
 - Ajuste `src/ETL/Processor/config.json` se desejar mudar pastas locais, destino do storage, memória, paralelismo...
 - No `config.json`, aponte para o Storage que deseja passando a configuração do rclone.
 - O downloader da Receita agora usa WebDAV no share público do SERPRO+/Nextcloud.
+- A publicação no BigQuery fica desligada por padrão. Com `BigQuery.Enabled=false` e sem override, o pipeline apenas emite um aviso e segue sem exigir `bq` ou credenciais Google.
+- Para habilitar BigQuery, configure `BigQuery.Enabled=true` ou `OPENCNPJ_BIGQUERY_ENABLED=true`, além de `Dataset`, `TablePrefix` opcional, `Location` opcional e `BqExecutable` se o binário não for `bq`. O projeto pode vir de `BigQuery.ProjectId` no `config.json` ou da env `OPENCNPJ_BIGQUERY_PROJECT_ID`; as envs têm prioridade. Em container, `OPENCNPJ_GOOGLE_CREDENTIALS_BASE64` pode receber a credencial Google codificada em base64 como secret do ambiente.
 
 ## Layout local
 
 - `downloads/YYYY-MM`: zips baixados da Receita.
 - `extracted_data/YYYY-MM`: arquivos extraídos para o mês.
 - `parquet_data/YYYY-MM`: Parquets gerados para o mês e Parquets mais recentes das integrações.
+- `parquet_data/YYYY-MM/bigquery/receita/part-*.parquet`: Parquets colunares da Receita para BigQuery, com 1 linha por CNPJ.
+- `parquet_data/YYYY-MM/integrations/{cno,rntrc}/bigquery/*.parquet`: Parquets colunares das integrações para BigQuery.
 - `cnpj_shards/YYYY-MM/releases/{release_id}/shards`: shards locais `*.ndjson` e `*.index.bin` do release atual.
 
 Os artefatos locais não são apagados automaticamente, exceto quando o pipeline é executado com `--cleanup-on-success`. Nesse modo, o cleanup remove downloads, CSVs extraídos e temporários, mas preserva Parquets e releases locais para permitir recomposição incremental.
@@ -37,7 +42,8 @@ Os artefatos locais não são apagados automaticamente, exceto quando o pipeline
 - O ETL possui a interface interna `IDataIntegration` para sub-módulos de dados.
 - Cada integração declara chave, propriedade JSON, frequência de atualização e versão de schema.
 - O estado de hashes por CNPJ de cada integração é publicado via rclone em `files/integrations/state/{module}/hashes.json`.
-- Integrações devem gerar Parquet com 1 linha por CNPJ (`cnpj`, `cnpj_prefix`, `payload_json`, `content_hash`, datas de origem/módulo).
+- Integrações devem gerar Parquet canônico com 1 linha por CNPJ (`cnpj`, `cnpj_prefix`, `payload_json`, `content_hash`, datas de origem/módulo) para API, shards e cálculo incremental.
+- Quando publicadas no BigQuery, as integrações com suporte dedicado geram um Parquet columnar separado, sem `payload_json`.
 - O JSON final sempre inclui a chave das integrações habilitadas; quando o CNPJ não tiver dado naquela integração, o valor fica `null`.
 
 ## Execução
@@ -49,6 +55,12 @@ Os artefatos locais não são apagados automaticamente, exceto quando o pipeline
   - `dotnet run pipeline --cleanup-on-success` (opcional, remove artefatos locais do dataset após sucesso)
 
 Sem `-m`, o pipeline escolhe o mês mais recente publicado no share WebDAV da Receita.
+
+Quando `BigQuery.Enabled=true`, o pipeline carrega 1 tabela por módulo: `receita`, `cno`, `rntrc` e futuras integrações que publiquem um Parquet canônico. `receita`, `cno` e `rntrc` são carregadas a partir de Parquets colunares, sem `payload_json`. A carga acontece após shards/ZIPs serem gerados e antes do `info.json` e do estado de integração serem publicados, para falhar o release antes de marcá-lo como concluído.
+
+Antes de carregar tabelas, o deploy e o ETL executam uma validação via `bq show {ProjectId}:{Dataset}`. O BigQuery pode ser ligado por `OPENCNPJ_BIGQUERY_ENABLED=true`, e o `ProjectId` vem de `OPENCNPJ_BIGQUERY_PROJECT_ID` ou do `config.json`. O projeto é passado explicitamente em todos os comandos BigQuery, então o fluxo não depende do projeto default configurado no `gcloud`. O dataset precisa existir; as tabelas finais podem existir ou não. Cada execução carrega uma tabela staging a partir do Parquet columnar e substitui/cria a tabela final com `bq cp --force`, permitindo atualizar schemas desatualizados, como a tabela `receita`, e criar tabelas novas, como `cno` e `rntrc`.
+
+Para deploy em container com credencial via env, gere o valor com `base64 -w 0 arquivo.json` e configure `OPENCNPJ_GOOGLE_CREDENTIALS_BASE64` como secret. O entrypoint decodifica a credencial em arquivo temporário, ativa `gcloud auth activate-service-account` e remove o arquivo antes de iniciar o deploy.
 
 ### Página estática
 
@@ -72,6 +84,8 @@ A página é implementada em React + TypeScript e continua sendo 100% estática 
 
 - Use `src/script/deploy.sh` para orquestrar o release:
   - roda o ETL com release versionado
+  - ignora BigQuery com aviso quando `BigQuery.Enabled=false`
+  - valida `OPENCNPJ_BIGQUERY_ENABLED` ou `BigQuery.Enabled`, `OPENCNPJ_BIGQUERY_PROJECT_ID` ou `BigQuery.ProjectId`, `BigQuery.Dataset`, o comando `bq` configurado e o acesso ao dataset quando BigQuery está habilitado
   - copia `info.json` e `*.index.bin` do release gerado para `src/Worker/assets`
   - executa `npm test` no Worker
   - faz `npx wrangler deploy`

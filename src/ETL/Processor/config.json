@@ -43,5 +43,14 @@
     "Enabled": true,
     "PackageShowUrl": "https://dados.antt.gov.br/api/3/action/package_show?id=b4a055d1-97a2-46f1-9461-cb17fbc6b6b3",
     "RefreshHours": 24
+  },
+  "BigQuery": {
+    "Enabled": false,
+    "ProjectId": "",
+    "Dataset": "public",
+    "TablePrefix": "",
+    "Location": "",
+    "BqExecutable": "bq",
+    "KeepStagingTables": false
   }
 }

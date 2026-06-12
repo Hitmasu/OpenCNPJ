@@ -214,7 +214,7 @@ public sealed class ParquetProcessor
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = $@"
             SET preserve_insertion_order = false;
-            SET threads = 1;
+            SET threads = 4;
             SET memory_limit = '8GB';
             SET temp_directory = '{EscapeSqlLiteral(tempDir)}';
             SET max_temp_directory_size = '200GB';";

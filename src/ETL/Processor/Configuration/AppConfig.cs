@@ -4,6 +4,9 @@ namespace CNPJExporter.Configuration;
 
 public class AppConfig
 {
+    public const string BigQueryEnabledEnvironmentVariable = "OPENCNPJ_BIGQUERY_ENABLED";
+    public const string BigQueryProjectIdEnvironmentVariable = "OPENCNPJ_BIGQUERY_PROJECT_ID";
+
     public PathsConfig Paths { get; set; } = new();
     public RcloneSettings Rclone { get; set; } = new();
     public DuckDbSettings DuckDb { get; set; } = new();
@@ -11,6 +14,7 @@ public class AppConfig
     public DownloaderSettings Downloader { get; set; } = new();
     public CnoIntegrationSettings CnoIntegration { get; set; } = new();
     public RntrcIntegrationSettings RntrcIntegration { get; set; } = new();
+    public BigQuerySettings BigQuery { get; set; } = new();
 
     public class PathsConfig
     {
@@ -71,6 +75,17 @@ public class AppConfig
         public int RefreshHours { get; set; } = 24;
     }
 
+    public class BigQuerySettings
+    {
+        public bool Enabled { get; set; } = false;
+        public string ProjectId { get; set; } = string.Empty;
+        public string Dataset { get; set; } = string.Empty;
+        public string TablePrefix { get; set; } = string.Empty;
+        public string Location { get; set; } = string.Empty;
+        public string BqExecutable { get; set; } = "bq";
+        public bool KeepStagingTables { get; set; } = false;
+    }
+
     public static AppConfig Current { get; private set; } = new();
 
     public static AppConfig Load(string? path = null)
@@ -87,7 +102,7 @@ public class AppConfig
                 });
                 if (cfg != null)
                 {
-                    Current = cfg;
+                    Current = ApplyEnvironmentOverrides(cfg);
                     return Current;
                 }
             }
@@ -95,7 +110,30 @@ public class AppConfig
         catch
         {
         }
-        Current = new();
+        Current = ApplyEnvironmentOverrides(new());
         return Current;
+    }
+
+    private static AppConfig ApplyEnvironmentOverrides(AppConfig config)
+    {
+        var bigQueryEnabled = Environment.GetEnvironmentVariable(BigQueryEnabledEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(bigQueryEnabled))
+            config.BigQuery.Enabled = ParseBooleanEnvironmentValue(bigQueryEnabled, BigQueryEnabledEnvironmentVariable);
+
+        var bigQueryProjectId = Environment.GetEnvironmentVariable(BigQueryProjectIdEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(bigQueryProjectId))
+            config.BigQuery.ProjectId = bigQueryProjectId.Trim();
+
+        return config;
+    }
+
+    private static bool ParseBooleanEnvironmentValue(string value, string name)
+    {
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "true" => true,
+            "false" => false,
+            _ => throw new InvalidOperationException($"{name} deve ser true ou false.")
+        };
     }
 }
