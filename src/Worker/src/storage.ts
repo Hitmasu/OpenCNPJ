@@ -121,7 +121,7 @@ async function loadJsonFromR2(bucket: R2Bucket, key: string): Promise<Response> 
   }
 
   try {
-    return jsonOk(JSON.parse(text));
+    return jsonOkNoStore(JSON.parse(text));
   } catch (error) {
     throw createStageError("info.json.parse", error);
   }

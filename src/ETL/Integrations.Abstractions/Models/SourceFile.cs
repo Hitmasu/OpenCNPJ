@@ -1,9 +1,9 @@
-namespace CNPJExporter.Modules.Rntrc.Models;
+namespace CNPJExporter.Integrations;
 
 public sealed record SourceFile(
     Uri Uri,
-    string DisplayName,
     string FileName,
     string SourceVersion,
     long? ContentLength,
-    DateTimeOffset? LastModified);
+    DateTimeOffset? LastModified,
+    string? DisplayName = null);

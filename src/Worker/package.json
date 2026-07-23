@@ -5,5 +5,11 @@
   "scripts": {
     "pretest": "node scripts/ensure-generated-runtime-info.mjs",
     "test": "node --experimental-strip-types --test src/**/*.test.ts"
+  },
+  "devDependencies": {
+    "wrangler": "4.113.0"
+  },
+  "overrides": {
+    "sharp": "0.35.3"
   }
 }

@@ -236,10 +236,10 @@ export const CNPJ_RESPONSE_SCHEMA = {
         nome_socio: { type: "string", minLength: 0, maxLength: 200 },
         cnpj_cpf_socio: {
           type: "string",
-          description: "CPF do sócio vem mascarado (ex.: ***339234**). CNPJ vem com 14 dígitos.",
+          description: "CPF do sócio vem mascarado (ex.: ***339234**). CNPJ vem com 14 caracteres e pode ser alfanumérico.",
           minLength: 0,
           maxLength: 20,
-          examples: ["***339234**", "41132876000179"],
+          examples: ["***339234**", "41132876000179", "12ABC34501DE35"],
         },
         qualificacao_socio: { type: "string", minLength: 0, maxLength: 100 },
         data_entrada_sociedade: {

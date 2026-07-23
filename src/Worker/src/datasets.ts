@@ -8,22 +8,22 @@ export type DatasetSelectionResult =
   | { ok: false; error: string };
 
 export function resolveDatasetSelection(searchParams: URLSearchParams, runtimeInfo: RuntimeInfo | null): DatasetSelectionResult {
-  const availableModuleKeys = Object
-    .keys(runtimeInfo?.datasets ?? {})
-    .filter(key => key !== RECEITA_DATASET_KEY)
-    .sort((left, right) => left.localeCompare(right));
   const requestedKeys = parseRequestedDatasetKeys(searchParams);
-
   if (requestedKeys.length === 0) {
     return {
       ok: true,
       value: {
         includeReceita: true,
-        moduleKeys: availableModuleKeys,
-        cacheKey: [RECEITA_DATASET_KEY, ...availableModuleKeys].join(","),
+        moduleKeys: [],
+        cacheKey: RECEITA_DATASET_KEY,
       },
     };
   }
+
+  const availableModuleKeys = Object
+    .keys(runtimeInfo?.datasets ?? {})
+    .filter(key => key !== RECEITA_DATASET_KEY)
+    .sort((left, right) => left.localeCompare(right));
 
   const available = new Set([RECEITA_DATASET_KEY, ...availableModuleKeys]);
   const unknown = requestedKeys.filter(key => !available.has(key));
@@ -44,7 +44,10 @@ export function resolveDatasetSelection(searchParams: URLSearchParams, runtimeIn
     value: {
       includeReceita,
       moduleKeys,
-      cacheKey: requestedKeys.join(","),
+      cacheKey: [
+        ...(includeReceita ? [RECEITA_DATASET_KEY] : []),
+        ...moduleKeys,
+      ].join(","),
     },
   };
 }

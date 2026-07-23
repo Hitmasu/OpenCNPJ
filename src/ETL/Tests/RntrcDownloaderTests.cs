@@ -1,5 +1,5 @@
+using CNPJExporter.Integrations;
 using CNPJExporter.Modules.Rntrc.Downloaders;
-using CNPJExporter.Modules.Rntrc.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ETL.Tests;
@@ -68,11 +68,11 @@ public sealed class RntrcDownloaderTests
             await File.WriteAllTextAsync(csvPath, "same-size");
             var previous = new SourceFile(
                 new Uri("https://example.invalid/transportadores_rntrc_03_2026.csv"),
-                "Mar26 - RNTRC",
                 "transportadores_rntrc_03_2026.csv",
                 "\"etag-old\"",
                 new FileInfo(csvPath).Length,
-                DateTimeOffset.Parse("2026-04-10T09:09:56Z"));
+                DateTimeOffset.Parse("2026-04-10T09:09:56Z"),
+                "Mar26 - RNTRC");
             var current = previous with
             {
                 SourceVersion = "\"etag-new\"",

@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Buffers.Binary;
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using CNPJExporter.Configuration;
@@ -18,8 +17,6 @@ public class ParquetIngestor : IDisposable
 {
     private const string ShardDataExtension = ".ndjson";
     private const string ShardIndexExtension = ".index.bin";
-    private const int CnpjBasicoLength = 8;
-    private const int CnpjBasicoMaxExclusive = 100_000_000;
     private const int DefaultShardRangeFanOut = 5;
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private readonly string? _datasetKey;
@@ -360,7 +357,7 @@ public class ParquetIngestor : IDisposable
                 $"[yellow]DuckDB excedeu memória no shard {prefix} faixa {failedRange.ToString().EscapeMarkup()}; subdividindo.[/]");
 
             var fanOut = GetShardRangeFanOut();
-            foreach (var childRange in SplitRange(failedRange, fanOut))
+            foreach (var childRange in CnpjBasicoRangePlanner.Split(failedRange, fanOut))
                 await ExportPrefixRangeAsync(connection, prefix, writer, counts, childRange);
         }
     }
@@ -616,43 +613,6 @@ public class ParquetIngestor : IDisposable
             .Where(path => File.Exists(Path.Combine(localShardDir, path)))
             .ToArray();
 
-    private static bool TryBuildFullCnpjBasicoRange(string prefix, out CnpjBasicoRange range)
-    {
-        range = default;
-
-        if (prefix.Length > CnpjBasicoLength
-            || !int.TryParse(prefix, NumberStyles.None, CultureInfo.InvariantCulture, out var prefixNumber))
-        {
-            return false;
-        }
-
-        var multiplier = Pow10(CnpjBasicoLength - prefix.Length);
-        var startInclusive = prefixNumber * multiplier;
-        var endExclusive = Math.Min(CnpjBasicoMaxExclusive, startInclusive + multiplier);
-
-        range = new CnpjBasicoRange(startInclusive, endExclusive);
-        return true;
-    }
-
-    private static IReadOnlyList<CnpjBasicoRange> SplitRange(CnpjBasicoRange range, int fanOut)
-    {
-        var width = range.EndExclusive - range.StartInclusive;
-        if (width <= 1)
-            return [range];
-
-        fanOut = Math.Max(2, fanOut);
-        var chunkWidth = Math.Max(1, (width + fanOut - 1) / fanOut);
-        var ranges = new List<CnpjBasicoRange>();
-
-        for (var start = range.StartInclusive; start < range.EndExclusive; start += chunkWidth)
-        {
-            var end = Math.Min(range.EndExclusive, start + chunkWidth);
-            ranges.Add(new CnpjBasicoRange(start, end));
-        }
-
-        return ranges;
-    }
-
     private static int GetShardRangeFanOut()
     {
         return NormalizeShardRangeFanOut(AppConfig.Current.Shards.QueryRangeFanOut <= 0
@@ -664,30 +624,22 @@ public class ParquetIngestor : IDisposable
 
     private static IReadOnlyList<CnpjBasicoRange?> BuildInitialShardRanges(string prefix)
     {
-        if (!TryBuildFullCnpjBasicoRange(prefix, out var fullRange))
+        if (!CnpjBasicoRangePlanner.TryBuildFullRange(prefix, out var fullRange))
             return [null];
 
-        return SplitRange(fullRange, GetShardRangeFanOut())
+        return CnpjBasicoRangePlanner.Split(fullRange, GetShardRangeFanOut())
             .Select(range => (CnpjBasicoRange?)range)
             .ToArray();
     }
 
     internal static IReadOnlyList<string> BuildInitialShardRangesForTest(string prefix, int fanOut)
     {
-        if (!TryBuildFullCnpjBasicoRange(prefix, out var fullRange))
+        if (!CnpjBasicoRangePlanner.TryBuildFullRange(prefix, out var fullRange))
             return ["<unbounded>"];
 
-        return SplitRange(fullRange, NormalizeShardRangeFanOut(fanOut))
+        return CnpjBasicoRangePlanner.Split(fullRange, NormalizeShardRangeFanOut(fanOut))
             .Select(static range => range.ToString())
             .ToArray();
-    }
-
-    private static int Pow10(int exponent)
-    {
-        var result = 1;
-        for (var i = 0; i < exponent; i++)
-            result *= 10;
-        return result;
     }
 
     private static bool IsDuckDbOutOfMemory(Exception ex)
@@ -727,24 +679,6 @@ public class ParquetIngestor : IDisposable
     }
 
     internal int GetShardCountFromFilesystemForPublication() => _shardQueryBuilder.GetShardCount();
-
-    private readonly record struct CnpjBasicoRange(int StartInclusive, int EndExclusive)
-    {
-        public string StartLiteral => StartInclusive.ToString($"D{CnpjBasicoLength}", CultureInfo.InvariantCulture);
-
-        public string? EndLiteral => EndExclusive >= CnpjBasicoMaxExclusive
-            ? null
-            : EndExclusive.ToString($"D{CnpjBasicoLength}", CultureInfo.InvariantCulture);
-
-        public bool CanSplit => EndExclusive - StartInclusive > 1;
-
-        public override string ToString()
-        {
-            return EndLiteral is null
-                ? $"[{StartLiteral}, max]"
-                : $"[{StartLiteral}, {EndLiteral})";
-        }
-    }
 
     private static List<List<string>> BuildShardPrefixBatches(IReadOnlyList<string> prefixes, int batchSize)
     {

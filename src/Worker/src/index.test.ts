@@ -110,8 +110,7 @@ function createExecutionContext(): ExecutionContext {
   } as ExecutionContext;
 }
 
-function createLookupFixture() {
-  const cnpj = "00000000000000";
+function createLookupFixture(cnpj = "00000000000000") {
   const payload = { cnpj, razao_social: "EMPRESA TESTE LTDA" };
   const line = `${JSON.stringify(payload)}\n`;
 
@@ -223,6 +222,38 @@ test("fetch returns a record using binary index and exact R2 range read", async 
   ]);
 });
 
+test("fetch returns an alphanumeric record from its uppercase shard", async () => {
+  const fixture = createLookupFixture("12ABC34501DE35");
+  const bucket = new FakeBucket({
+    "files/info.json": JSON.stringify({
+      storage_release_id: "release-alpha",
+    }),
+    "files/shards/releases/release-alpha/12A.index.bin": fixture.index,
+    "files/shards/releases/release-alpha/12A.ndjson": fixture.ndjson,
+  });
+  const assets = new FakeAssetsFetcher({});
+
+  const response = await worker.fetch(
+    new Request("https://worker.invalid/12.abc.345/01de-35"),
+    {
+      CNPJ_BUCKET: bucket as unknown as R2Bucket,
+      ASSETS: assets as unknown as Fetcher,
+    } satisfies Env,
+    createExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), fixture.payload);
+  assert.deepEqual(bucket.gets, [
+    { key: "files/info.json", range: undefined },
+    { key: "files/shards/releases/release-alpha/12A.index.bin", range: undefined },
+    {
+      key: "files/shards/releases/release-alpha/12A.ndjson",
+      range: { offset: 0, length: fixture.ndjson.length },
+    },
+  ]);
+});
+
 test("fetch resolves release from storage_release_id", async () => {
   const fixture = createLookupFixture();
   const bucket = new FakeBucket({
@@ -261,7 +292,7 @@ test("fetch resolves release from storage_release_id", async () => {
   ]);
 });
 
-test("fetch composes configured module shards into the base record", async () => {
+test("fetch composes explicitly requested module shards into the base record", async () => {
   const fixture = createLookupFixture();
   const moduleFixture = createModuleFixture(fixture.cnpj, {
     updated_at: "2026-04-14T00:00:00Z",
@@ -285,7 +316,7 @@ test("fetch composes configured module shards into the base record", async () =>
   const assets = new FakeAssetsFetcher({});
 
   const response = await worker.fetch(
-    new Request(`https://worker.invalid/${fixture.cnpj}`),
+    new Request(`https://worker.invalid/${fixture.cnpj}?datasets=receita,cno`),
     {
       CNPJ_BUCKET: bucket as unknown as R2Bucket,
       ASSETS: assets as unknown as Fetcher,
@@ -314,7 +345,7 @@ test("fetch composes configured module shards into the base record", async () =>
   ]);
 });
 
-test("fetch exposes configured module key as null when CNPJ has no module record", async () => {
+test("fetch exposes an explicitly requested module key as null when CNPJ has no module record", async () => {
   const fixture = createLookupFixture();
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
@@ -332,7 +363,7 @@ test("fetch exposes configured module key as null when CNPJ has no module record
   const assets = new FakeAssetsFetcher({});
 
   const response = await worker.fetch(
-    new Request(`https://worker.invalid/${fixture.cnpj}`),
+    new Request(`https://worker.invalid/${fixture.cnpj}?datasets=receita,cno`),
     {
       CNPJ_BUCKET: bucket as unknown as R2Bucket,
       ASSETS: assets as unknown as Fetcher,
@@ -401,7 +432,7 @@ test("fetch with datasets=cno returns only the requested module", async () => {
   ]);
 });
 
-test("fetch with datasets=receita returns only the root Receita dataset", async () => {
+test("fetch defaults to the Receita dataset when no dataset is requested", async () => {
   const fixture = createLookupFixture();
   const moduleFixture = createModuleFixture(fixture.cnpj, { nome: "OBRA TESTE" });
   const bucket = new FakeBucket({
@@ -422,7 +453,7 @@ test("fetch with datasets=receita returns only the root Receita dataset", async 
   const assets = new FakeAssetsFetcher({});
 
   const response = await worker.fetch(
-    new Request(`https://worker.invalid/${fixture.cnpj}?datasets=receita`),
+    new Request(`https://worker.invalid/${fixture.cnpj}`),
     {
       CNPJ_BUCKET: bucket as unknown as R2Bucket,
       ASSETS: assets as unknown as Fetcher,
@@ -735,17 +766,12 @@ test("fetch serves /info from static assets", async () => {
   );
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
   assert.deepEqual(await response.json(), { versao: "2026-03" });
   assert.deepEqual(bucket.gets, [{ key: "files/info.json", range: undefined }]);
 });
 
-test("fetch /info ignores stale response cache when runtime info is embedded", async () => {
-  const cache = installFakeCache();
-  await cache.put(
-    new Request("https://cache.opencnpj/info"),
-    new Response(JSON.stringify({ storage_release_id: "old-release" }), { status: 200 }),
-  );
-
+test("fetch /info serves embedded runtime info without caching", async () => {
   __test__.setEmbeddedRuntimeInfoForTest({
     storage_release_id: "base-release",
     datasets: {

@@ -33,7 +33,7 @@ public sealed class BigQueryParquetExporter
             COPY (
                 SELECT
                     cnpj,
-                    TRY_CAST(cnpj_prefix AS INTEGER) AS cnpj_prefix,
+                    UPPER(cnpj_prefix) AS cnpj_prefix,
                     json_extract_string(payload_json, '$.updated_at') AS updated_at,
                     json_extract_string(payload_json, '$.numero_rntrc') AS numero_rntrc,
                     json_extract_string(payload_json, '$.nome') AS nome,

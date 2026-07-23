@@ -2,7 +2,7 @@ namespace CNPJExporter.Modules.Receita.Processors;
 
 internal static class JsonProjection
 {
-    public const string Fields = @"cnpj := e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv,
+    public const string Fields = @"cnpj := UPPER(e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv),
                     razao_social := COALESCE(emp.razao_social, ''),
                     nome_fantasia := COALESCE(e.nome_fantasia, ''),
                     situacao_cadastral := CASE LPAD(e.situacao_cadastral, 2, '0')

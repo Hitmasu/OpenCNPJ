@@ -4,8 +4,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
+using CNPJExporter.Integrations;
 using CNPJExporter.Modules.Cno.Configuration;
-using CNPJExporter.Modules.Cno.Models;
 using Spectre.Console;
 
 namespace CNPJExporter.Modules.Cno.Downloaders;
@@ -19,7 +19,7 @@ public sealed class Downloader
         _options = options;
     }
 
-    public async Task<SourceFile> GetSourceFileAsync(CancellationToken cancellationToken = default)
+    public async Task<SourceFile> GetSourceAsync(CancellationToken cancellationToken = default)
     {
         var sourceRoot = new Uri(_options.PublicShareRoot.EndsWith("/", StringComparison.Ordinal)
             ? _options.PublicShareRoot

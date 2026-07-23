@@ -21,7 +21,6 @@ RUN apt-get update \
         > /etc/apt/sources.list.d/google-cloud-sdk.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs google-cloud-cli \
-    && npm install -g wrangler \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
@@ -42,6 +41,8 @@ WORKDIR /app
 COPY . .
 
 RUN chmod +x /app/src/scripts/deploy.sh /app/src/scripts/docker-entrypoint.sh \
+    && npm ci --prefix /app/src/Worker \
+    && ln -sf /app/src/Worker/node_modules/.bin/wrangler /usr/local/bin/wrangler \
     && dotnet restore /app/src/ETL/Processor/CNPJExporter.csproj
 
 ENTRYPOINT ["/app/src/scripts/docker-entrypoint.sh"]

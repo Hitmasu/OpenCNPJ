@@ -74,8 +74,8 @@ public sealed class ReceitaBigQueryParquetExporterTests
                 await using var reader = await cmd.ExecuteReaderAsync();
                 Assert.IsTrue(await reader.ReadAsync());
 
-                Assert.AreEqual("60701190000104", reader.GetString(0));
-                Assert.AreEqual(607, reader.GetInt32(1));
+                Assert.AreEqual("12ABC34501DE35", reader.GetString(0));
+                Assert.AreEqual("12A", reader.GetString(1));
                 Assert.AreEqual("EMPRESA TESTE LTDA", reader.GetString(2));
                 Assert.AreEqual("EMPRESA TESTE", reader.GetString(3));
                 Assert.AreEqual("Ativa", reader.GetString(4));
@@ -150,10 +150,10 @@ public sealed class ReceitaBigQueryParquetExporterTests
 
         await CopyPartitionedAsync(connection, parquetDir, "estabelecimento", """
             SELECT
-                '607' AS cnpj_prefix,
-                '60701190' AS cnpj_basico,
-                '0001' AS cnpj_ordem,
-                '04' AS cnpj_dv,
+                '12A' AS cnpj_prefix,
+                '12ABC345' AS cnpj_basico,
+                '01DE' AS cnpj_ordem,
+                '35' AS cnpj_dv,
                 '1' AS identificador_matriz_filial,
                 'EMPRESA TESTE' AS nome_fantasia,
                 '02' AS situacao_cadastral,
@@ -185,8 +185,8 @@ public sealed class ReceitaBigQueryParquetExporterTests
 
         await CopyPartitionedAsync(connection, parquetDir, "empresa", """
             SELECT
-                '607' AS cnpj_prefix,
-                '60701190' AS cnpj_basico,
+                '12A' AS cnpj_prefix,
+                '12ABC345' AS cnpj_basico,
                 'EMPRESA TESTE LTDA' AS razao_social,
                 '2062' AS natureza_juridica,
                 '49' AS qualificacao_responsavel,
@@ -197,8 +197,8 @@ public sealed class ReceitaBigQueryParquetExporterTests
 
         await CopyPartitionedAsync(connection, parquetDir, "simples", """
             SELECT
-                '607' AS cnpj_prefix,
-                '60701190' AS cnpj_basico,
+                '12A' AS cnpj_prefix,
+                '12ABC345' AS cnpj_basico,
                 'S' AS opcao_simples,
                 '20240115' AS data_opcao_simples,
                 '20240220' AS data_exclusao_simples,
@@ -209,8 +209,8 @@ public sealed class ReceitaBigQueryParquetExporterTests
 
         await CopyPartitionedAsync(connection, parquetDir, "socio", """
             SELECT
-                '607' AS cnpj_prefix,
-                '60701190' AS cnpj_basico,
+                '12A' AS cnpj_prefix,
+                '12ABC345' AS cnpj_basico,
                 '2' AS identificador_socio,
                 'SOCIO TESTE' AS nome_socio,
                 '***000000**' AS cnpj_cpf_socio,

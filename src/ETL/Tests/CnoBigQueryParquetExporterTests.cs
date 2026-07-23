@@ -20,7 +20,7 @@ public sealed class CnoBigQueryParquetExporterTests
         {
             var files = new ExtractedFiles(
                 WriteCsv(tempRoot, "cno.csv", 26, [
-                    "010010092278,105,BRASIL,1992-02-20,1992-02-21,2022-05-17,,71215207,02688984000170,0057,Obra A,9701,Brasilia,OUTROS,SOF SUL,SN,Bairro,DF,,Lote,m2,412.00,02,2002-11-30,Empresa A,001"
+                    "010010092278,105,BRASIL,1992-02-20,1992-02-21,2022-05-17,,71215207,12.abc.345/01de-35,0057,Obra A,9701,Brasilia,OUTROS,SOF SUL,SN,Bairro,DF,,Lote,m2,412.00,02,2002-11-30,Empresa A,001"
                 ]),
                 WriteCsv(tempRoot, "cno_cnaes.csv", 3, [
                     "010010092278,4120400,2022-05-17"
@@ -58,12 +58,12 @@ public sealed class CnoBigQueryParquetExporterTests
             cmd.CommandText = $@"
                 SELECT cnpj, cnpj_prefix, updated_at, to_json(obras) AS obras_json
                 FROM read_parquet('{EscapeSqlLiteral(source.SourcePaths.Single())}')
-                WHERE cnpj = '02688984000170'";
+                WHERE cnpj = '12ABC34501DE35'";
             await using var reader = await cmd.ExecuteReaderAsync();
 
             Assert.IsTrue(await reader.ReadAsync());
-            Assert.AreEqual("02688984000170", reader.GetString(0));
-            Assert.AreEqual(26, reader.GetInt32(1));
+            Assert.AreEqual("12ABC34501DE35", reader.GetString(0));
+            Assert.AreEqual("12A", reader.GetString(1));
             Assert.AreEqual("2026-04-14T12:00:00.0000000+00:00", reader.GetString(2));
 
             using var obras = JsonDocument.Parse(reader.GetString(3));

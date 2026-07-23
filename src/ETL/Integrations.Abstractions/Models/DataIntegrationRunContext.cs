@@ -6,4 +6,5 @@ public sealed record DataIntegrationRunContext(
     string ModuleWorkDir,
     string ModuleParquetDir,
     DataIntegrationHashState PreviousState,
-    DateTimeOffset Now);
+    DateTimeOffset Now,
+    SourceFile? Source = null);

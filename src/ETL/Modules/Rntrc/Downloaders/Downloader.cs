@@ -3,8 +3,8 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CNPJExporter.Integrations;
 using CNPJExporter.Modules.Rntrc.Configuration;
-using CNPJExporter.Modules.Rntrc.Models;
 using Spectre.Console;
 
 namespace CNPJExporter.Modules.Rntrc.Downloaders;
@@ -18,7 +18,7 @@ public sealed class Downloader
         _options = options;
     }
 
-    public async Task<SourceFile> GetSourceFileAsync(CancellationToken cancellationToken = default)
+    public async Task<SourceFile> GetSourceAsync(CancellationToken cancellationToken = default)
     {
         using var http = CreateHttpClient();
         var packageJson = await http.GetStringAsync(_options.PackageShowUrl, cancellationToken);
@@ -97,11 +97,11 @@ public sealed class Downloader
 
         return new SourceFile(
             latest.Uri,
-            latest.Name,
             fileName,
             BuildSourceVersion(latest),
             latest.Size,
-            latest.LastModified);
+            latest.LastModified,
+            latest.Name);
     }
 
     private static ResourceCandidate? ReadResource(JsonElement resourceElement)

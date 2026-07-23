@@ -2,6 +2,7 @@ import {
   HOT_CHUNK_CACHE_MAX_BYTES,
   HOT_CHUNK_CACHE_MAX_ENTRIES,
   HOT_CHUNK_CACHE_TTL_MS,
+  HOT_INDEX_CACHE_MAX_BYTES,
   HOT_INDEX_CACHE_MAX_ENTRIES,
   HOT_INDEX_CACHE_TTL_MS,
   HOT_RUNTIME_INFO_TTL_MS,
@@ -11,6 +12,7 @@ import type { BinaryShardIndex, RuntimeInfo } from "./types.ts";
 type HotIndexCacheEntry = {
   expiresAt: number;
   index: BinaryShardIndex;
+  size: number;
 };
 
 type HotChunkCacheEntry = {
@@ -21,12 +23,14 @@ type HotChunkCacheEntry = {
 
 const hotIndexCache = new Map<string, HotIndexCacheEntry>();
 const hotChunkCache = new Map<string, HotChunkCacheEntry>();
+let hotIndexCacheBytes = 0;
 let hotChunkCacheBytes = 0;
 let hotRuntimeInfo: { expiresAt: number; value: RuntimeInfo } | null = null;
 
 export function clearHotCaches(): void {
   hotIndexCache.clear();
   hotChunkCache.clear();
+  hotIndexCacheBytes = 0;
   hotChunkCacheBytes = 0;
   hotRuntimeInfo = null;
 }
@@ -39,6 +43,7 @@ export function getHotIndex(key: string): BinaryShardIndex | null {
 
   if (entry.expiresAt <= Date.now()) {
     hotIndexCache.delete(key);
+    hotIndexCacheBytes -= entry.size;
     return null;
   }
 
@@ -48,19 +53,31 @@ export function getHotIndex(key: string): BinaryShardIndex | null {
 }
 
 export function rememberHotIndex(key: string, index: BinaryShardIndex): void {
-  hotIndexCache.delete(key);
+  const existing = hotIndexCache.get(key);
+  if (existing) {
+    hotIndexCache.delete(key);
+    hotIndexCacheBytes -= existing.size;
+  }
+
+  const size = index.bytes.byteLength;
   hotIndexCache.set(key, {
     index,
+    size,
     expiresAt: Date.now() + HOT_INDEX_CACHE_TTL_MS,
   });
+  hotIndexCacheBytes += size;
 
-  while (hotIndexCache.size > HOT_INDEX_CACHE_MAX_ENTRIES) {
+  while (hotIndexCache.size > HOT_INDEX_CACHE_MAX_ENTRIES || hotIndexCacheBytes > HOT_INDEX_CACHE_MAX_BYTES) {
     const oldestKey = hotIndexCache.keys().next().value;
     if (oldestKey == null) {
       break;
     }
 
+    const oldest = hotIndexCache.get(oldestKey);
     hotIndexCache.delete(oldestKey);
+    if (oldest) {
+      hotIndexCacheBytes -= oldest.size;
+    }
   }
 }
 
@@ -129,4 +146,3 @@ export function rememberHotRuntimeInfo(value: RuntimeInfo): void {
     expiresAt: Date.now() + HOT_RUNTIME_INFO_TTL_MS,
   };
 }
-
