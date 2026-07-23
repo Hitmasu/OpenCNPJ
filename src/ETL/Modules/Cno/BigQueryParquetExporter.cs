@@ -35,7 +35,7 @@ public sealed class BigQueryParquetExporter
             COPY (
                 SELECT
                     cnpj,
-                    TRY_CAST(cnpj_prefix AS INTEGER) AS cnpj_prefix,
+                    UPPER(cnpj_prefix) AS cnpj_prefix,
                     json_extract_string(payload_json, '$.updated_at') AS updated_at,
                     from_json(json_extract(payload_json, '$.obras'), '{EscapeSqlLiteral(ObrasJsonSchema)}') AS obras
                 FROM read_parquet('{EscapeSqlLiteral(_sourceParquetPath)}')

@@ -8,3 +8,8 @@ public interface IDataIntegration
         DataIntegrationRunContext context,
         CancellationToken cancellationToken = default);
 }
+
+public interface IDataIntegrationSourceProvider
+{
+    Task<SourceFile> GetSourceAsync(CancellationToken cancellationToken = default);
+}

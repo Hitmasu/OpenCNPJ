@@ -11,6 +11,7 @@ export const NO_STORE_HEADERS = {
 export const CACHE_TTL_SECONDS = 60 * 60 * 24;
 export const HOT_INDEX_CACHE_TTL_MS = 30 * 60 * 1000;
 export const HOT_INDEX_CACHE_MAX_ENTRIES = 256;
+export const HOT_INDEX_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 export const HOT_CHUNK_CACHE_TTL_MS = 10 * 60 * 1000;
 export const HOT_CHUNK_CACHE_MAX_ENTRIES = 32;
 export const HOT_CHUNK_CACHE_MAX_BYTES = 8 * 1024 * 1024;

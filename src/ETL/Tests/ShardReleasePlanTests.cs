@@ -96,7 +96,7 @@ public sealed class ShardReleasePlanTests
     }
 
     [TestMethod]
-    public void BuildInitialShardRangesForTest_ShouldPreSplitNumericPrefix()
+    public void BuildInitialShardRangesForTest_ShouldPreSplitNumericPrefixAcrossBase36Suffixes()
     {
         var ranges = ParquetIngestor.BuildInitialShardRangesForTest("607", 5)
             .Select(range => range.ToString())
@@ -105,11 +105,28 @@ public sealed class ShardReleasePlanTests
         CollectionAssert.AreEqual(
             new[]
             {
-                "[60700000, 60720000)",
-                "[60720000, 60740000)",
-                "[60740000, 60760000)",
-                "[60760000, 60780000)",
-                "[60780000, 60800000)"
+                "[60700000, 60777778)",
+                "[60777778, 607EEEEG)",
+                "[607EEEEG, 607LLLLO)",
+                "[607LLLLO, 607SSSSW)",
+                "[607SSSSW, 60800000)"
+            },
+            ranges);
+    }
+
+    [TestMethod]
+    public void BuildInitialShardRangesForTest_ShouldPreSplitAlphanumericPrefix()
+    {
+        var ranges = ParquetIngestor.BuildInitialShardRangesForTest("12A", 5).ToArray();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "[12A00000, 12A77778)",
+                "[12A77778, 12AEEEEG)",
+                "[12AEEEEG, 12ALLLLO)",
+                "[12ALLLLO, 12ASSSSW)",
+                "[12ASSSSW, 12B00000)"
             },
             ranges);
     }

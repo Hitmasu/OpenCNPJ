@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text;
 using CNPJExporter.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -8,6 +7,17 @@ namespace ETL.Tests;
 [TestClass]
 public sealed class PublishedInfoClientTests
 {
+    [TestMethod]
+    public void DefaultConstructor_ShouldReadInfoFromRcloneStorage()
+    {
+        var client = new PublishedInfoClient();
+
+        Assert.AreEqual(
+            typeof(PublishedInfoClient.RclonePublishedInfoReader),
+            client.ReaderTypeForTest,
+            "O pipeline deve ler info.json diretamente do storage via rclone, não da API pública.");
+    }
+
     [TestMethod]
     public async Task GetPublishedInfoAsync_ShouldParseZipMetadata_FromDatasets()
     {
@@ -41,7 +51,7 @@ public sealed class PublishedInfoClientTests
             }
             """;
 
-        var client = new PublishedInfoClient(new HttpClient(new StubHttpMessageHandler(payload)));
+        var client = new PublishedInfoClient(new InMemoryPublishedInfoReader(payload));
         var info = await client.GetPublishedInfoAsync();
 
         Assert.AreEqual("base-release", info.StorageReleaseId);
@@ -57,14 +67,9 @@ public sealed class PublishedInfoClientTests
         Assert.AreEqual("module-md5", cno.Zip.Md5Checksum);
     }
 
-    private sealed class StubHttpMessageHandler(string payload) : HttpMessageHandler
+    private sealed class InMemoryPublishedInfoReader(string payload) : PublishedInfoClient.IPublishedInfoReader
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(payload, Encoding.UTF8, "application/json")
-            });
-        }
+        public Task<Stream> OpenReadAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<Stream>(new MemoryStream(Encoding.UTF8.GetBytes(payload), writable: false));
     }
 }

@@ -1,5 +1,5 @@
+using CNPJExporter.Integrations;
 using CNPJExporter.Modules.Cno.Downloaders;
-using CNPJExporter.Modules.Cno.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ETL.Tests;

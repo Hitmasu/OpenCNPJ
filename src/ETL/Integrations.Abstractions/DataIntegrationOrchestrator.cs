@@ -44,7 +44,14 @@ public sealed class DataIntegrationOrchestrator
                             || !string.Equals(publishedState.SchemaVersion, descriptor.SchemaVersion, StringComparison.Ordinal)
                             || now - publishedState.UpdatedAt >= descriptor.RefreshInterval
                             || !ParquetGlobExists(cachedState.ParquetGlob);
-            var result = shouldRun
+            var source = shouldRun && integration is IDataIntegrationSourceProvider sourceProvider
+                ? await sourceProvider.GetSourceAsync(cancellationToken)
+                : null;
+            var canReusePublishedResult = shouldRun
+                                          && source is not null
+                                          && CanReusePublishedResult(previousState, descriptor, source);
+            var runIntegration = shouldRun && !canReusePublishedResult;
+            var result = runIntegration
                 ? await integration.RunAsync(
                     new DataIntegrationRunContext(
                         datasetKey,
@@ -52,7 +59,8 @@ public sealed class DataIntegrationOrchestrator
                         moduleWorkDir,
                         moduleParquetDir,
                         previousState,
-                        now),
+                        now,
+                        source),
                     cancellationToken)
                 : DataIntegrationRunResult.Unchanged(previousState, now);
 
@@ -65,7 +73,7 @@ public sealed class DataIntegrationOrchestrator
                 result.UpdatedAt,
                 result.ParquetGlob,
                 descriptor.SchemaVersion);
-            var shouldPersistState = shouldRun || changedCnpjs.Count > 0 || metadataChanged;
+            var shouldPersistState = runIntegration || changedCnpjs.Count > 0 || metadataChanged;
 
             summaries.Add(new DataIntegrationRunSummary(
                 descriptor,
@@ -119,6 +127,32 @@ public sealed class DataIntegrationOrchestrator
         }
 
         return changed.ToArray();
+    }
+
+    private static bool CanReusePublishedResult(
+        DataIntegrationHashState previousState,
+        DataIntegrationDescriptor descriptor,
+        SourceFile source)
+    {
+        if (!string.Equals(previousState.SchemaVersion, descriptor.SchemaVersion, StringComparison.Ordinal))
+            return false;
+
+        if (previousState.Hashes.Count == 0)
+            return false;
+
+        if (!ParquetGlobExists(previousState.ParquetGlob))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(previousState.SourceVersion)
+            && !string.Equals(previousState.SourceVersion, "unknown", StringComparison.Ordinal)
+            && string.Equals(previousState.SourceVersion, source.SourceVersion, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return source.LastModified is not null
+               && previousState.UpdatedAt is not null
+               && source.LastModified.Value <= previousState.UpdatedAt.Value;
     }
 
     private static bool CacheMatchesPublishedInfo(

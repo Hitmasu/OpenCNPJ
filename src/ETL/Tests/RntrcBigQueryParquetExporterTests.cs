@@ -18,7 +18,7 @@ public sealed class RntrcBigQueryParquetExporterTests
         try
         {
             var csvPath = WriteLatin1Csv(tempRoot, "transportadores_rntrc_03_2026.csv", [
-                "\"Transportadora Ágil LTDA\";\"050085788\";\"23/05/2017\";\"ATIVO\";\"11.193.322/0001-10\";\"ETC\";\"14095-290\";\"RIBEIRÃO PRETO\";\"SP\";\"Sim\";\"23/10/2024\"",
+                "\"Transportadora Ágil LTDA\";\"050085788\";\"23/05/2017\";\"ATIVO\";\"12.abc.345/01de-35\";\"ETC\";\"14095-290\";\"RIBEIRÃO PRETO\";\"SP\";\"Sim\";\"23/10/2024\"",
                 "\"+ RAPIDO TRANSPORTADORA LTDA\";\"058308655\";\"23/07/2025\";\"PENDENTE\";\"60.452.651/0001-44\";\"ETC\";\"18120-000\";\"MAIRINQUE\";\"SP\";\"Não\";\"23/07/2025\""
             ]);
             var canonicalParquetPath = Path.Combine(tempRoot, "rntrc.parquet");
@@ -70,12 +70,12 @@ public sealed class RntrcBigQueryParquetExporterTests
                     municipio,
                     equiparado
                 FROM read_parquet('{EscapeSqlLiteral(source.SourcePaths.Single())}')
-                WHERE cnpj = '11193322000110'";
+                WHERE cnpj = '12ABC34501DE35'";
             await using var reader = await cmd.ExecuteReaderAsync();
 
             Assert.IsTrue(await reader.ReadAsync());
-            Assert.AreEqual("11193322000110", reader.GetString(0));
-            Assert.AreEqual(111, reader.GetInt32(1));
+            Assert.AreEqual("12ABC34501DE35", reader.GetString(0));
+            Assert.AreEqual("12A", reader.GetString(1));
             Assert.AreEqual("2026-04-10T09:09:56.0000000+00:00", reader.GetString(2));
             Assert.AreEqual("050085788", reader.GetString(3));
             Assert.AreEqual("Transportadora Ágil LTDA", reader.GetString(4));

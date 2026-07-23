@@ -29,7 +29,7 @@ public sealed class ParquetProcessor
             await ConfigureDuckDbAsync(connection, workDir, cancellationToken);
             await ExecuteNonQueryAsync(
                 connection,
-                "CREATE OR REPLACE MACRO CleanCnpj(value) AS regexp_replace(COALESCE(CAST(value AS VARCHAR), ''), '[^0-9A-Za-z]', '', 'g')",
+                "CREATE OR REPLACE MACRO CleanCnpj(value) AS upper(regexp_replace(COALESCE(CAST(value AS VARCHAR), ''), '[^0-9A-Za-z]', '', 'g'))",
                 cancellationToken);
             await ExecuteNonQueryAsync(
                 connection,
@@ -89,7 +89,7 @@ public sealed class ParquetProcessor
                 equiparado,
                 data_situacao_rntrc
             FROM {BuildCsvRead(csvPath)}
-            WHERE length(CleanCnpj(cpfcnpjtransportador)) = 14;
+            WHERE regexp_full_match(CleanCnpj(cpfcnpjtransportador), '[A-Z0-9]{{12}}[0-9]{{2}}');
 
             CREATE TABLE rntrc_output (
                 cnpj VARCHAR,

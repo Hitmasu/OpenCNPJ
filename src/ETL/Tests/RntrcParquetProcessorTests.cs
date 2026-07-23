@@ -20,7 +20,9 @@ public sealed class RntrcParquetProcessorTests
             var csvPath = WriteLatin1Csv(tempRoot, "transportadores_rntrc_03_2026.csv", [
                 "\"Transportadora Ágil LTDA\";\"050085788\";\"23/05/2017\";\"ATIVO\";\"11.193.322/0001-10\";\"ETC\";\"14095-290\";\"RIBEIRÃO PRETO\";\"SP\";\"Sim\";\"23/10/2024\"",
                 "\"Autônomo Anonimizado\";\"055515644\";\"07/12/2022\";\"ATIVO\";\"***.123.456-**\";\"TAC\";\"14080-080\";\"RIBEIRÃO PRETO\";\"SP\";\"Não\";\"23/07/2025\"",
-                "\"+ RAPIDO TRANSPORTADORA LTDA\";\"058308655\";\"23/07/2025\";\"PENDENTE\";\"60.452.651/0001-44\";\"ETC\";\"18120-000\";\"MAIRINQUE\";\"SP\";\"Não\";\"23/07/2025\""
+                "\"+ RAPIDO TRANSPORTADORA LTDA\";\"058308655\";\"23/07/2025\";\"PENDENTE\";\"60.452.651/0001-44\";\"ETC\";\"18120-000\";\"MAIRINQUE\";\"SP\";\"Não\";\"23/07/2025\"",
+                "\"Transportadora Alfa\";\"058308656\";\"23/07/2025\";\"ATIVO\";\"12.abc.345/01de-35\";\"ETC\";\"18120-000\";\"MAIRINQUE\";\"SP\";\"Não\";\"23/07/2025\"",
+                "\"Transportadora Inválida\";\"058308657\";\"23/07/2025\";\"ATIVO\";\"12.ABC.345/01DE-ZZ\";\"ETC\";\"18120-000\";\"MAIRINQUE\";\"SP\";\"Não\";\"23/07/2025\""
             ]);
             var parquetPath = Path.Combine(tempRoot, "rntrc.parquet");
             var processor = new ParquetProcessor();
@@ -34,7 +36,9 @@ public sealed class RntrcParquetProcessorTests
 
             Assert.IsTrue(hashes.ContainsKey("11193322000110"), "CNPJ formatado deve ser normalizado e indexado.");
             Assert.IsTrue(hashes.ContainsKey("60452651000144"), "Segundo CNPJ formatado deve ser normalizado e indexado.");
-            Assert.AreEqual(2, hashes.Count, "CPF/TAC anonimizado não deve entrar no índice CNPJ.");
+            Assert.IsTrue(hashes.ContainsKey("12ABC34501DE35"), "CNPJ alfanumérico deve ser normalizado para maiúsculas e indexado.");
+            Assert.IsFalse(hashes.ContainsKey("12ABC34501DEZZ"), "Os dois caracteres verificadores devem ser numéricos.");
+            Assert.AreEqual(3, hashes.Count, "CPF/TAC anonimizado e CNPJ inválido não devem entrar no índice CNPJ.");
 
             var payload = await ReadPayloadAsync(parquetPath, "11193322000110");
             using var document = JsonDocument.Parse(payload);

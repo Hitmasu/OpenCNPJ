@@ -44,7 +44,7 @@ public sealed class ShardQueryBuilder
         var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
         var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
         var selectCols = includeCnpjColumn
-            ? "e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv as cnpj, to_json(struct_pack(\n" + JsonProjection.Fields +
+            ? "UPPER(e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv) as cnpj, to_json(struct_pack(\n" + JsonProjection.Fields +
               $"\n)) as {jsonAlias}"
             : $"to_json(struct_pack(\n" + JsonProjection.Fields + $"\n)) as {jsonAlias}";
 
@@ -94,9 +94,9 @@ public sealed class ShardQueryBuilder
         var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
         var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
         var selectCols = includeCnpjColumn
-            ? "e.cnpj_prefix as shard_prefix, e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv as cnpj, to_json(struct_pack(\n" +
+            ? "UPPER(e.cnpj_prefix) as shard_prefix, UPPER(e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv) as cnpj, to_json(struct_pack(\n" +
               JsonProjection.Fields + $"\n)) as {jsonAlias}"
-            : $"e.cnpj_prefix as shard_prefix, to_json(struct_pack(\n{JsonProjection.Fields}\n)) as {jsonAlias}";
+            : $"UPPER(e.cnpj_prefix) as shard_prefix, to_json(struct_pack(\n{JsonProjection.Fields}\n)) as {jsonAlias}";
 
         return $@"WITH batch_estabelecimentos AS (
                 SELECT * FROM {estabelecimentoRelation}{cnpjBasicoWhere}
@@ -146,8 +146,8 @@ public sealed class ShardQueryBuilder
 	            ),
 	            {BuildQsaCte("batch_socios", prefixes)}
 	            SELECT
-                    e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv AS cnpj,
-                    TRY_CAST(e.cnpj_prefix AS INTEGER) AS cnpj_prefix,
+                    UPPER(e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv) AS cnpj,
+                    UPPER(e.cnpj_prefix) AS cnpj_prefix,
                     COALESCE(emp.razao_social, '') AS razao_social,
                     COALESCE(e.nome_fantasia, '') AS nome_fantasia,
                     CASE LPAD(e.situacao_cadastral, 2, '0')

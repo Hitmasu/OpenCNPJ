@@ -25,7 +25,9 @@ public sealed class ParquetProcessorTests
                     "010010092278,4120400,2022-05-17"
                 ]),
                 WriteCsv(tempRoot, "cno_vinculos.csv", 6, [
-                    "010010092278,2022-05-17,,2022-05-17,0053,12.345.678/0001-95"
+                    "010010092278,2022-05-17,,2022-05-17,0053,12.345.678/0001-95",
+                    "010010092278,2022-05-17,,2022-05-17,0053,12.abc.345/01de-35",
+                    "010010092278,2022-05-17,,2022-05-17,0053,12.ABC.345/01DE-ZZ"
                 ]),
                 WriteCsv(tempRoot, "cno_areas.csv", 7, [
                     "010010092278,1,Residencial,Construcao,Principal,,412.00"
@@ -42,7 +44,9 @@ public sealed class ParquetProcessorTests
 
             Assert.IsTrue(hashes.ContainsKey("02688984000170"), "CNPJ do responsável da obra deve ser indexado.");
             Assert.IsTrue(hashes.ContainsKey("12345678000195"), "CNPJ vinculado à obra deve ser indexado.");
-            Assert.AreEqual(2, hashes.Count);
+            Assert.IsTrue(hashes.ContainsKey("12ABC34501DE35"), "CNPJ alfanumérico deve ser normalizado para maiúsculas e indexado.");
+            Assert.IsFalse(hashes.ContainsKey("12ABC34501DEZZ"), "Os dois caracteres verificadores devem ser numéricos.");
+            Assert.AreEqual(3, hashes.Count);
 
             var payload = await ReadPayloadAsync(parquetPath, "02688984000170");
             using var document = JsonDocument.Parse(payload);

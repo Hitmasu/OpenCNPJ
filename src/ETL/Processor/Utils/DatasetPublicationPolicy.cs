@@ -5,7 +5,6 @@ namespace CNPJExporter.Utils;
 internal static class DatasetPublicationPolicy
 {
     public const int NoNewDatasetExitCode = 10;
-    public static readonly Uri PublishedInfoUri = new("https://api.opencnpj.org/info");
 
     public static bool TrySelectMonthToProcess(
         string? requestedMonth,

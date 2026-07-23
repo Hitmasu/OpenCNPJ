@@ -1,16 +1,24 @@
 using System.Text.Json;
+using CNPJExporter.Exporters;
 using CNPJExporter.Processors.Models;
 
 namespace CNPJExporter.Utils;
 
 internal sealed class PublishedInfoClient
 {
-    private readonly HttpClient _httpClient;
+    private readonly IPublishedInfoReader _reader;
 
-    public PublishedInfoClient(HttpClient? httpClient = null)
+    public PublishedInfoClient()
     {
-        _httpClient = httpClient ?? new HttpClient();
+        _reader = new RclonePublishedInfoReader();
     }
+
+    internal PublishedInfoClient(IPublishedInfoReader reader)
+    {
+        _reader = reader;
+    }
+
+    internal Type ReaderTypeForTest => _reader.GetType();
 
     public async Task<string?> GetPublishedLastUpdatedAsync(CancellationToken cancellationToken = default)
     {
@@ -82,10 +90,7 @@ internal sealed class PublishedInfoClient
 
     private async Task<JsonDocument> GetPublishedInfoDocumentAsync(CancellationToken cancellationToken)
     {
-        using var response = await _httpClient.GetAsync(DatasetPublicationPolicy.PublishedInfoUri, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await _reader.OpenReadAsync(cancellationToken);
         return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
     }
 
@@ -159,6 +164,35 @@ internal sealed class PublishedInfoClient
             size,
             url,
             md5Checksum);
+    }
+
+    internal interface IPublishedInfoReader
+    {
+        Task<Stream> OpenReadAsync(CancellationToken cancellationToken);
+    }
+
+    internal sealed class RclonePublishedInfoReader : IPublishedInfoReader
+    {
+        public async Task<Stream> OpenReadAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var localPath = Path.Combine(Path.GetTempPath(), $"opencnpj-info-{Guid.NewGuid():N}.json");
+            try
+            {
+                var downloaded = await RcloneClient.DownloadFileAsync("info.json", localPath);
+                if (!downloaded || !File.Exists(localPath))
+                    throw new InvalidOperationException("Não foi possível baixar info.json do storage via rclone.");
+
+                var bytes = await File.ReadAllBytesAsync(localPath, cancellationToken);
+                return new MemoryStream(bytes, writable: false);
+            }
+            finally
+            {
+                if (File.Exists(localPath))
+                    File.Delete(localPath);
+            }
+        }
     }
 
 }

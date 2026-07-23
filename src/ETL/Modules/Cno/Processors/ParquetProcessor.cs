@@ -71,7 +71,7 @@ public sealed class ParquetProcessor
 
             await ExecuteNonQueryAsync(
                 connection,
-                "CREATE OR REPLACE MACRO CleanCnpj(value) AS regexp_replace(COALESCE(CAST(value AS VARCHAR), ''), '[^0-9A-Za-z]', '', 'g')",
+                "CREATE OR REPLACE MACRO CleanCnpj(value) AS upper(regexp_replace(COALESCE(CAST(value AS VARCHAR), ''), '[^0-9A-Za-z]', '', 'g'))",
                 cancellationToken);
             await ExecuteNonQueryAsync(
                 connection,
@@ -140,11 +140,11 @@ public sealed class ParquetProcessor
                 FROM (
                     SELECT CleanCnpj(ni_responsavel) AS cnpj, cno
                     FROM obras
-                    WHERE length(CleanCnpj(ni_responsavel)) = 14
+                    WHERE regexp_full_match(CleanCnpj(ni_responsavel), '[A-Z0-9]{{12}}[0-9]{{2}}')
                     UNION
                     SELECT CleanCnpj(ni_responsavel) AS cnpj, cno
                     FROM vinculos
-                    WHERE length(CleanCnpj(ni_responsavel)) = 14
+                    WHERE regexp_full_match(CleanCnpj(ni_responsavel), '[A-Z0-9]{{12}}[0-9]{{2}}')
                 ) AS normalized_owners;
             CREATE TABLE cno_output (
                 cnpj VARCHAR,

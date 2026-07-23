@@ -4,6 +4,10 @@ compatibility_date = "2026-03-18"
 
 workers_dev = true
 
+[cache]
+enabled = true
+cross_version_cache = false
+
 [assets]
 directory = "./assets"
 binding = "ASSETS"
