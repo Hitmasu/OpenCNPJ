@@ -197,6 +197,90 @@ export const CNPJ_RESPONSE_SCHEMA = {
         { $ref: "#/$defs/RntrcPayload" },
       ],
     },
+    favorecidos_pj: {
+      description: "Cadastro de Favorecidos - Pessoa Jurídica publicado pelo Portal da Transparência.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalFavorecidosPjPayload" },
+      ],
+    },
+    ceis: {
+      description: "Sanções do CEIS vinculadas ao CNPJ consultado.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalSancoesPayload" },
+      ],
+    },
+    cepim: {
+      description: "Impedimentos do CEPIM vinculados ao CNPJ consultado.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalCepimPayload" },
+      ],
+    },
+    cnep: {
+      description: "Sanções do CNEP vinculadas ao CNPJ consultado.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalSancoesPayload" },
+      ],
+    },
+    acordos_leniencia: {
+      description: "Acordos de leniência e respectivos efeitos vinculados ao CNPJ consultado.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalAcordosLenienciaPayload" },
+      ],
+    },
+    licitacoes: {
+      description: "Histórico de licitações desde 2013 em que o CNPJ participou, venceu ou recebeu empenho relacionado.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalLicitacoesPayload" },
+      ],
+    },
+    contratos: {
+      description: "Histórico de contratos desde 2013, incluindo itens, termos aditivos e apostilamentos vinculados ao CNPJ contratado.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalContratosPayload" },
+      ],
+    },
+    renuncias_fiscais: {
+      description: "Renúncias fiscais, habilitações e imunidades/isenções vinculadas ao CNPJ desde 2013, conforme disponibilidade da fonte.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalRenunciasPayload" },
+      ],
+    },
+    notas_fiscais: {
+      description: "Histórico de notas fiscais desde 2013, conforme disponibilidade da fonte, associado ao CNPJ emitente ou destinatário.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalNotasFiscaisPayload" },
+      ],
+    },
+    convenios: {
+      description: "Convênios e ordens bancárias associados ao CNPJ convenente.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalConveniosPayload" },
+      ],
+    },
+    emendas_parlamentares: {
+      description: "Recebimentos de emendas associados diretamente ao CNPJ favorecido.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalEmendasPayload" },
+      ],
+    },
+    emendas_documentos: {
+      description: "Histórico por documento de emendas parlamentares associado ao CNPJ favorecido desde 2013, conforme disponibilidade da fonte.",
+      oneOf: [
+        { type: "null" },
+        { $ref: "#/$defs/PortalEmendasDocumentosPayload" },
+      ],
+    },
   },
   $defs: {
     Telefone: {
@@ -392,6 +476,206 @@ export const CNPJ_RESPONSE_SCHEMA = {
         municipio: { type: "string", minLength: 0, maxLength: 100 },
         uf: { type: "string", minLength: 0, maxLength: 2 },
         equiparado: { type: "boolean" },
+      },
+    },
+    PortalFavorecidosPjPayload: {
+      type: "object",
+      required: [
+        "updated_at",
+        "razao_social",
+        "nome_fantasia",
+        "tipo_pessoa",
+        "cnae",
+        "natureza_juridica",
+        "endereco",
+      ],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        razao_social: { type: "string" },
+        nome_fantasia: { type: "string" },
+        tipo_pessoa: { type: "string" },
+        cnae: {
+          type: "object",
+          required: ["codigo", "descricao", "secao_codigo", "secao_descricao"],
+          additionalProperties: false,
+          properties: {
+            codigo: { type: "string" },
+            descricao: { type: "string" },
+            secao_codigo: { type: "string" },
+            secao_descricao: { type: "string" },
+          },
+        },
+        natureza_juridica: {
+          type: "object",
+          required: ["codigo", "descricao", "tipo_codigo", "tipo_descricao"],
+          additionalProperties: false,
+          properties: {
+            codigo: { type: "string" },
+            descricao: { type: "string" },
+            tipo_codigo: { type: "string" },
+            tipo_descricao: { type: "string" },
+          },
+        },
+        endereco: {
+          type: "object",
+          required: ["logradouro", "numero", "complemento", "cep", "bairro", "municipio", "uf"],
+          additionalProperties: false,
+          properties: {
+            logradouro: { type: "string" },
+            numero: { type: "string" },
+            complemento: { type: "string" },
+            cep: { type: "string" },
+            bairro: { type: "string" },
+            municipio: { type: "string" },
+            uf: { type: "string" },
+          },
+        },
+      },
+    },
+    PortalSancoesPayload: {
+      type: "object",
+      required: ["updated_at", "sancoes"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        sancoes: {
+          type: "array",
+          items: {
+            type: "object",
+            description: "Registro integral da sanção segundo o dicionário CEIS ou CNEP.",
+            additionalProperties: true,
+          },
+        },
+      },
+    },
+    PortalCepimPayload: {
+      type: "object",
+      required: ["updated_at", "impedimentos"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        impedimentos: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["nome_entidade", "numero_convenio", "orgao_concedente", "motivo"],
+            additionalProperties: false,
+            properties: {
+              nome_entidade: { type: "string" },
+              numero_convenio: { type: "string" },
+              orgao_concedente: { type: "string" },
+              motivo: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    PortalAcordosLenienciaPayload: {
+      type: "object",
+      required: ["updated_at", "acordos"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        acordos: {
+          type: "array",
+          items: {
+            type: "object",
+            description: "Acordo integral, incluindo a lista de efeitos publicada pela CGU.",
+            additionalProperties: true,
+          },
+        },
+      },
+    },
+    PortalRecord: {
+      type: "object",
+      description: "Registro do arquivo oficial, normalizado para nomes de campos estáveis.",
+      additionalProperties: {
+        type: "string",
+      },
+    },
+    PortalLicitacoesPayload: {
+      type: "object",
+      required: ["updated_at", "licitacoes"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        licitacoes: {
+          type: "array",
+          items: { $ref: "#/$defs/PortalRecord" },
+        },
+      },
+    },
+    PortalContratosPayload: {
+      type: "object",
+      required: ["updated_at", "contratos"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        contratos: {
+          type: "array",
+          items: { $ref: "#/$defs/PortalRecord" },
+        },
+      },
+    },
+    PortalRenunciasPayload: {
+      type: "object",
+      required: ["updated_at", "renuncias"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        renuncias: {
+          type: "array",
+          items: { $ref: "#/$defs/PortalRecord" },
+        },
+      },
+    },
+    PortalNotasFiscaisPayload: {
+      type: "object",
+      required: ["updated_at", "notas_fiscais"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        notas_fiscais: {
+          type: "array",
+          items: { $ref: "#/$defs/PortalRecord" },
+        },
+      },
+    },
+    PortalConveniosPayload: {
+      type: "object",
+      required: ["updated_at", "convenios"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        convenios: {
+          type: "array",
+          items: { $ref: "#/$defs/PortalRecord" },
+        },
+      },
+    },
+    PortalEmendasPayload: {
+      type: "object",
+      required: ["updated_at", "emendas"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        emendas: {
+          type: "array",
+          items: { $ref: "#/$defs/PortalRecord" },
+        },
+      },
+    },
+    PortalEmendasDocumentosPayload: {
+      type: "object",
+      required: ["updated_at", "documentos"],
+      additionalProperties: false,
+      properties: {
+        updated_at: { type: "string", minLength: 1, maxLength: 40 },
+        documentos: {
+          type: "array",
+          items: { $ref: "#/$defs/PortalRecord" },
+        },
       },
     },
   },

@@ -67,6 +67,56 @@ public sealed class PublishedInfoClientTests
         Assert.AreEqual("module-md5", cno.Zip.Md5Checksum);
     }
 
+    [TestMethod]
+    public async Task GetPublishedInfoAsync_ShouldParseSegmentedModule()
+    {
+        const string payload = """
+            {
+              "storage_release_id": "base-release",
+              "datasets": {
+                "licitacoes": {
+                  "json_property_name": "licitacoes",
+                  "storage_release_id": "routing-v2",
+                  "routing_release_id": "routing-v2",
+                  "segment_collection_property": "licitacoes",
+                  "schema_version": "1",
+                  "source_version": "catalog-v2",
+                  "updated_at": "2026-07-23T00:00:00Z",
+                  "record_count": 20,
+                  "segments": [
+                    {
+                      "id": "2017",
+                      "source_version": "source-2017",
+                      "updated_at": "2017-12-31T00:00:00Z",
+                      "record_count": 8,
+                      "storage_release_id": "segment-2017",
+                      "zip_available": true,
+                      "zip_size": 100,
+                      "zip_url": "https://file.opencnpj.org/releases/licitacoes/segments/2017/data.zip",
+                      "zip_md5checksum": "zip-2017"
+                    }
+                  ]
+                }
+              }
+            }
+            """;
+
+        var info = await new PublishedInfoClient(
+                new InMemoryPublishedInfoReader(payload))
+            .GetPublishedInfoAsync();
+
+        var licitacoes = info.ModuleShards["licitacoes"];
+        Assert.AreEqual("routing-v2", licitacoes.RoutingReleaseId);
+        Assert.AreEqual(
+            "licitacoes",
+            licitacoes.SegmentCollectionProperty);
+        Assert.AreEqual(1, licitacoes.EffectiveSegments.Count);
+        Assert.AreEqual(
+            "segment-2017",
+            licitacoes.EffectiveSegments[0].StorageReleaseId);
+        Assert.IsTrue(licitacoes.EffectiveSegments[0].Zip.Available);
+    }
+
     private sealed class InMemoryPublishedInfoReader(string payload) : PublishedInfoClient.IPublishedInfoReader
     {
         public Task<Stream> OpenReadAsync(CancellationToken cancellationToken) =>

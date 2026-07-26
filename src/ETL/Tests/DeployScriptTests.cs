@@ -238,6 +238,15 @@ public sealed class DeployScriptTests
         Assert.IsTrue(
             script.Contains("collectModuleReleases", StringComparison.Ordinal),
             "deploy.sh must also clean up stale module releases.");
+        Assert.IsTrue(
+            script.Contains("collectRoutingReleases", StringComparison.Ordinal),
+            "deploy.sh must compare routing releases from segmented modules.");
+        Assert.IsTrue(
+            script.Contains("collectSegmentReleases", StringComparison.Ordinal),
+            "deploy.sh must preserve immutable segment releases still referenced by the new info.json.");
+        Assert.IsTrue(
+            script.Contains("/segments/${second}/${third}", StringComparison.Ordinal),
+            "deploy.sh must delete an obsolete segment only at its exact module/segment/release path.");
     }
 
     [TestMethod]
@@ -301,6 +310,18 @@ public sealed class DeployScriptTests
         Assert.IsFalse(
             script.Contains("--release-id", StringComparison.Ordinal),
             "docker-entrypoint.sh should let deploy.sh generate a fresh release id only when there is work to publish.");
+    }
+
+    [TestMethod]
+    public void Deploy_ShouldResumePendingOrIncompleteRelease()
+    {
+        var script = File.ReadAllText(FindDeployScript());
+
+        StringAssert.Contains(script, "PENDING_RELEASE_FILE=");
+        StringAssert.Contains(script, "read_pending_release_id");
+        StringAssert.Contains(script, "discover_resumable_release_id");
+        StringAssert.Contains(script, "PIPELINE_ARGS+=(--resume-existing-release)");
+        StringAssert.Contains(script, "rm -f \"$PENDING_RELEASE_FILE\"");
     }
 
     [TestMethod]

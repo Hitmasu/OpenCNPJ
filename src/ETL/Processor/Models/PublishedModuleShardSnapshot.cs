@@ -8,4 +8,11 @@ internal sealed record PublishedModuleShardSnapshot(
     DateTimeOffset UpdatedAt,
     long RecordCount,
     string StorageReleaseId,
-    PublishedZipArtifactSnapshot Zip);
+    PublishedZipArtifactSnapshot Zip,
+    string? RoutingReleaseId = null,
+    string? SegmentCollectionProperty = null,
+    IReadOnlyList<PublishedModuleSegmentSnapshot>? Segments = null)
+{
+    public IReadOnlyList<PublishedModuleSegmentSnapshot> EffectiveSegments =>
+        Segments ?? [];
+}

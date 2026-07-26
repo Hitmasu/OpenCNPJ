@@ -39,6 +39,51 @@ public sealed class BigQueryPublicationPlannerTests
     }
 
     [TestMethod]
+    public void Build_ShouldExpandPartitionedParquetGlobs()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-bigquery-glob-{Guid.NewGuid():N}");
+        try
+        {
+            var segment2013 = Path.Combine(tempRoot, "2013");
+            var segment2014 = Path.Combine(tempRoot, "2014");
+            var expectedPaths = new[]
+            {
+                Path.Combine(segment2013, "part-002.parquet"),
+                Path.Combine(segment2013, "part-001.parquet"),
+                Path.Combine(segment2014, "part-001.parquet")
+            };
+            foreach (var path in expectedPaths)
+                Touch(path);
+
+            var plan = BigQueryPublicationPlanner.Build(
+                new AppConfig.BigQuerySettings
+                {
+                    Enabled = true,
+                    ProjectId = "opencnpj-bigquery",
+                    Dataset = "public"
+                },
+                "release-1",
+                [
+                    new BigQueryParquetSource(
+                        "licitacoes",
+                        [
+                            Path.Combine(segment2013, "*.parquet"),
+                            Path.Combine(segment2014, "*.parquet")
+                        ])
+                ]);
+
+            CollectionAssert.AreEqual(
+                expectedPaths.Order(StringComparer.Ordinal).ToArray(),
+                plan.Tables.Single().SourcePaths.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Build_ShouldRejectDisabledBigQuerySettings()
     {
         var ex = Assert.ThrowsException<InvalidOperationException>(() =>

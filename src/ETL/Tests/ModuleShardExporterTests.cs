@@ -60,6 +60,68 @@ public sealed class ModuleShardExporterTests
         }
     }
 
+    [TestMethod]
+    public async Task ExportLocalAsync_ShouldLimitOpenShardWriters()
+    {
+        const int prefixCount = 48;
+        const int recordsPerPrefix = 2_000;
+        var tempRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"opencnpj-module-shard-bounded-{Guid.NewGuid():N}");
+
+        try
+        {
+            Directory.CreateDirectory(tempRoot);
+            var parquetPath = Path.Combine(tempRoot, "many-prefixes.parquet");
+            await CreateManyPrefixesParquetAsync(
+                parquetPath,
+                prefixCount,
+                recordsPerPrefix);
+
+            var source = new DataIntegrationShardSource(
+                "bounded",
+                "items",
+                "1",
+                "test-source",
+                DateTimeOffset.Parse("2026-07-24T00:00:00Z"),
+                parquetPath,
+                prefixCount * recordsPerPrefix);
+
+            if (!Directory.Exists("/proc/self/fd"))
+                Assert.Inconclusive("A contagem de descritores requer /proc/self/fd.");
+
+            var baselineOpenFileDescriptors = CountOpenFileDescriptors();
+            var exportTask = new ModuleShardExporter().ExportLocalAsync(
+                source,
+                "bounded-release",
+                tempRoot);
+            var maximumOpenFileDescriptors = baselineOpenFileDescriptors;
+            while (!exportTask.IsCompleted)
+            {
+                maximumOpenFileDescriptors = Math.Max(
+                    maximumOpenFileDescriptors,
+                    CountOpenFileDescriptors());
+                await Task.Delay(1);
+            }
+
+            var result = await exportTask;
+
+            Assert.AreEqual(prefixCount, result.GeneratedPrefixes.Count);
+            var additionalOpenFileDescriptors =
+                maximumOpenFileDescriptors - baselineOpenFileDescriptors;
+            Assert.IsTrue(
+                additionalOpenFileDescriptors <= ModuleShardExporter.MaxOpenShardWriters + 16,
+                $"A exportação abriu até {additionalOpenFileDescriptors} descritores adicionais; "
+                + $"o limite esperado é {ModuleShardExporter.MaxOpenShardWriters} writers "
+                + "mais a tolerância dos arquivos do DuckDB.");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, true);
+        }
+    }
+
     private static async Task CreateIntegrationParquetAsync(string parquetPath)
     {
         await using var connection = new DuckDBConnection("Data Source=:memory:");
@@ -78,6 +140,36 @@ public sealed class ModuleShardExporterTests
             TO '{EscapeSqlLiteral(parquetPath)}' (FORMAT PARQUET, COMPRESSION ZSTD, OVERWRITE)";
         await cmd.ExecuteNonQueryAsync();
     }
+
+    private static async Task CreateManyPrefixesParquetAsync(
+        string parquetPath,
+        int prefixCount,
+        int recordsPerPrefix)
+    {
+        await using var connection = new DuckDBConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = $@"
+            COPY (
+                SELECT
+                    lpad(CAST(prefix AS VARCHAR), 3, '0')
+                        || lpad(CAST(record AS VARCHAR), 11, '0') AS cnpj,
+                    lpad(CAST(prefix AS VARCHAR), 3, '0') AS cnpj_prefix,
+                    '{{""item"":' || CAST(record AS VARCHAR) || '}}' AS payload_json,
+                    md5(CAST(prefix AS VARCHAR) || '-' || CAST(record AS VARCHAR)) AS content_hash,
+                    '2026-07-24T00:00:00Z' AS source_updated_at,
+                    '2026-07-24T00:00:00Z' AS module_updated_at
+                FROM range(0, {prefixCount}) prefixes(prefix)
+                CROSS JOIN range(0, {recordsPerPrefix}) records(record)
+            )
+            TO '{EscapeSqlLiteral(parquetPath)}'
+            (FORMAT PARQUET, COMPRESSION ZSTD, OVERWRITE)";
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static int CountOpenFileDescriptors() =>
+        Directory.EnumerateFileSystemEntries("/proc/self/fd").Count();
 
     private static string EscapeSqlLiteral(string value) => value.Replace("'", "''");
 }

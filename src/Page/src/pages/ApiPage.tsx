@@ -27,14 +27,18 @@ export function ApiPage() {
         <section className="doc-section">
           <h2>Filtro de dataset</h2>
           <p>
-            Use <code>dataset</code> para escolher a base desejada na consulta. Os valores aceitos são{' '}
-            <code>receita</code>, <code>cno</code> e <code>rntrc</code>. Sem filtro, o retorno padrão documentado é o
-            dataset da Receita Federal. Nos exemplos, <code>dataset=receita</code> fica explícito para deixar claro o
-            formato do parâmetro.
+            Use <code>datasets</code> para escolher uma ou mais bases. Separe vários valores por vírgula. São aceitos{' '}
+            <code>receita</code>, <code>cno</code>, <code>rntrc</code>, <code>favorecidos_pj</code>, <code>ceis</code>,{' '}
+            <code>cepim</code>, <code>cnep</code>, <code>acordos_leniencia</code>, <code>licitacoes</code>,{' '}
+            <code>contratos</code>, <code>renuncias_fiscais</code>, <code>notas_fiscais</code>, <code>convenios</code>,{' '}
+            <code>emendas_parlamentares</code> e <code>emendas_documentos</code>. O parâmetro singular{' '}
+            <code>dataset</code> continua aceito como alias. Sem filtro, o retorno padrão é a Receita Federal.
           </p>
-          <CodeBlock language="http" code={`GET https://api.opencnpj.org/12ABC34501DE35?dataset=receita
-GET https://api.opencnpj.org/12ABC34501DE35?dataset=cno
-GET https://api.opencnpj.org/12ABC34501DE35?dataset=rntrc`} />
+          <CodeBlock language="http" code={`GET https://api.opencnpj.org/12ABC34501DE35?datasets=receita
+GET https://api.opencnpj.org/12ABC34501DE35?datasets=favorecidos_pj
+GET https://api.opencnpj.org/12ABC34501DE35?datasets=licitacoes
+GET https://api.opencnpj.org/12ABC34501DE35?datasets=ceis,cnep
+GET https://api.opencnpj.org/12ABC34501DE35?datasets=receita,favorecidos_pj,ceis`} />
         </section>
 
         <section className="doc-section">

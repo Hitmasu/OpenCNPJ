@@ -39,7 +39,7 @@ function buildRequestUrl(cnpjInput: string, selectedDataset: DatasetKey) {
   const rawCnpj = removeMask(cnpjInput) || removeMask(DEFAULT_CNPJ);
   const params = new URLSearchParams();
 
-  params.set('dataset', selectedDataset);
+  params.set('datasets', selectedDataset);
 
   const query = params.toString();
   return `${API_BASE_URL}/${rawCnpj}${query ? `?${query}` : ''}`;

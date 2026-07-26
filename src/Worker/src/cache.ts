@@ -7,7 +7,11 @@ import {
   HOT_INDEX_CACHE_TTL_MS,
   HOT_RUNTIME_INFO_TTL_MS,
 } from "./constants.ts";
-import type { BinaryShardIndex, RuntimeInfo } from "./types.ts";
+import type {
+  BinaryShardIndex,
+  RuntimeInfo,
+  SegmentRoutingIndex,
+} from "./types.ts";
 
 type HotIndexCacheEntry = {
   expiresAt: number;
@@ -21,16 +25,26 @@ type HotChunkCacheEntry = {
   size: number;
 };
 
+type HotRoutingIndexCacheEntry = {
+  expiresAt: number;
+  index: SegmentRoutingIndex;
+  size: number;
+};
+
 const hotIndexCache = new Map<string, HotIndexCacheEntry>();
+const hotRoutingIndexCache = new Map<string, HotRoutingIndexCacheEntry>();
 const hotChunkCache = new Map<string, HotChunkCacheEntry>();
 let hotIndexCacheBytes = 0;
+let hotRoutingIndexCacheBytes = 0;
 let hotChunkCacheBytes = 0;
 let hotRuntimeInfo: { expiresAt: number; value: RuntimeInfo } | null = null;
 
 export function clearHotCaches(): void {
   hotIndexCache.clear();
+  hotRoutingIndexCache.clear();
   hotChunkCache.clear();
   hotIndexCacheBytes = 0;
+  hotRoutingIndexCacheBytes = 0;
   hotChunkCacheBytes = 0;
   hotRuntimeInfo = null;
 }
@@ -50,6 +64,58 @@ export function getHotIndex(key: string): BinaryShardIndex | null {
   hotIndexCache.delete(key);
   hotIndexCache.set(key, entry);
   return entry.index;
+}
+
+export function getHotRoutingIndex(key: string): SegmentRoutingIndex | null {
+  const entry = hotRoutingIndexCache.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    hotRoutingIndexCache.delete(key);
+    hotRoutingIndexCacheBytes -= entry.size;
+    return null;
+  }
+
+  hotRoutingIndexCache.delete(key);
+  hotRoutingIndexCache.set(key, entry);
+  return entry.index;
+}
+
+export function rememberHotRoutingIndex(
+  key: string,
+  index: SegmentRoutingIndex,
+): void {
+  const existing = hotRoutingIndexCache.get(key);
+  if (existing) {
+    hotRoutingIndexCache.delete(key);
+    hotRoutingIndexCacheBytes -= existing.size;
+  }
+
+  const size = index.bytes.byteLength;
+  hotRoutingIndexCache.set(key, {
+    index,
+    size,
+    expiresAt: Date.now() + HOT_INDEX_CACHE_TTL_MS,
+  });
+  hotRoutingIndexCacheBytes += size;
+
+  while (
+    hotRoutingIndexCache.size > HOT_INDEX_CACHE_MAX_ENTRIES
+    || hotRoutingIndexCacheBytes > HOT_INDEX_CACHE_MAX_BYTES
+  ) {
+    const oldestKey = hotRoutingIndexCache.keys().next().value;
+    if (oldestKey == null) {
+      break;
+    }
+
+    const oldest = hotRoutingIndexCache.get(oldestKey);
+    hotRoutingIndexCache.delete(oldestKey);
+    if (oldest) {
+      hotRoutingIndexCacheBytes -= oldest.size;
+    }
+  }
 }
 
 export function rememberHotIndex(key: string, index: BinaryShardIndex): void {

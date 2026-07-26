@@ -157,6 +157,54 @@ function buildBinaryIndex(entries: Array<{ cnpj: string; offset: number; length:
   return index;
 }
 
+function buildRoutingIndex(entries: Array<{
+  cnpj: string;
+  references: Array<{
+    segmentId: string;
+    offset: number;
+    length: number;
+  }>;
+}>): Uint8Array {
+  const encoder = new TextEncoder();
+  const size = 8 + entries.reduce(
+    (total, entry) => total + 16 + entry.references.reduce(
+      (referenceTotal, reference) =>
+        referenceTotal + 1 + encoder.encode(reference.segmentId).length + 12,
+      0,
+    ),
+    0,
+  );
+  const index = new Uint8Array(size);
+  index.set(encoder.encode("OCR1"), 0);
+  const view = new DataView(index.buffer);
+  view.setUint32(4, entries.length, true);
+  let cursor = 8;
+
+  for (const entry of entries) {
+    index.set(encoder.encode(entry.cnpj), cursor);
+    cursor += 14;
+    view.setUint16(cursor, entry.references.length, true);
+    cursor += 2;
+
+    for (const reference of entry.references) {
+      const segmentId = encoder.encode(reference.segmentId);
+      index[cursor++] = segmentId.length;
+      index.set(segmentId, cursor);
+      cursor += segmentId.length;
+      view.setUint32(cursor, reference.offset >>> 0, true);
+      view.setUint32(
+        cursor + 4,
+        Math.floor(reference.offset / 0x1_0000_0000),
+        true,
+      );
+      view.setUint32(cursor + 8, reference.length, true);
+      cursor += 12;
+    }
+  }
+
+  return index;
+}
+
 test.beforeEach(() => {
   __test__.clearHotIndexCache();
   __test__.setEmbeddedRuntimeInfoForTest(null);
@@ -294,10 +342,28 @@ test("fetch resolves release from storage_release_id", async () => {
 
 test("fetch composes explicitly requested module shards into the base record", async () => {
   const fixture = createLookupFixture();
-  const moduleFixture = createModuleFixture(fixture.cnpj, {
+  const moduleFirstChunk = createModuleFixture(fixture.cnpj, {
     updated_at: "2026-04-14T00:00:00Z",
     obras: [{ cno: "123", nome: "OBRA TESTE" }],
   });
+  const moduleSecondChunk = createModuleFixture(fixture.cnpj, {
+    updated_at: "2026-04-15T00:00:00Z",
+    obras: [{ cno: "456", nome: "SEGUNDA OBRA" }],
+  });
+  const moduleNdjson =
+    moduleFirstChunk.ndjson + moduleSecondChunk.ndjson;
+  const moduleIndex = buildBinaryIndex([
+    {
+      cnpj: fixture.cnpj,
+      offset: 0,
+      length: moduleFirstChunk.ndjson.length,
+    },
+    {
+      cnpj: fixture.cnpj,
+      offset: moduleFirstChunk.ndjson.length,
+      length: moduleSecondChunk.ndjson.length,
+    },
+  ]);
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
       storage_release_id: "base-release",
@@ -310,8 +376,8 @@ test("fetch composes explicitly requested module shards into the base record", a
     }),
     "files/shards/releases/base-release/000.index.bin": fixture.index,
     "files/shards/releases/base-release/000.ndjson": fixture.ndjson,
-    "files/shards/modules/cno/cno-release/000.index.bin": moduleFixture.index,
-    "files/shards/modules/cno/cno-release/000.ndjson": moduleFixture.ndjson,
+    "files/shards/modules/cno/cno-release/000.index.bin": moduleIndex,
+    "files/shards/modules/cno/cno-release/000.ndjson": moduleNdjson,
   });
   const assets = new FakeAssetsFetcher({});
 
@@ -329,8 +395,11 @@ test("fetch composes explicitly requested module shards into the base record", a
     ...fixture.payload,
     cno: {
       cnpj: fixture.cnpj,
-      updated_at: "2026-04-14T00:00:00Z",
-      obras: [{ cno: "123", nome: "OBRA TESTE" }],
+      updated_at: "2026-04-15T00:00:00Z",
+      obras: [
+        { cno: "123", nome: "OBRA TESTE" },
+        { cno: "456", nome: "SEGUNDA OBRA" },
+      ],
     },
   });
   assert.deepEqual(bucket.gets, [
@@ -340,7 +409,109 @@ test("fetch composes explicitly requested module shards into the base record", a
     { key: "files/shards/modules/cno/cno-release/000.index.bin", range: undefined },
     {
       key: "files/shards/modules/cno/cno-release/000.ndjson",
-      range: { offset: 0, length: moduleFixture.ndjson.length },
+      range: { offset: 0, length: moduleNdjson.length },
+    },
+  ]);
+});
+
+test("fetch composes only routed historical segments for a module", async () => {
+  const fixture = createLookupFixture("12ABC34501DE35");
+  const segment2017 = createModuleFixture(fixture.cnpj, {
+    updated_at: "2017-12-31T00:00:00Z",
+    licitacoes: [
+      { id: "L-2017", data: "2017-03-10" },
+    ],
+  });
+  const segment2026FirstChunk = createModuleFixture(fixture.cnpj, {
+    updated_at: "2026-03-31T00:00:00Z",
+    licitacoes: [
+      { id: "L-2026", data: "2026-03-12" },
+    ],
+  });
+  const segment2026SecondChunk = createModuleFixture(fixture.cnpj, {
+    updated_at: "2026-03-31T00:00:00Z",
+    licitacoes: [
+      { id: "L-2017", data: "2017-03-10" },
+    ],
+  });
+  const segment2026Ndjson =
+    segment2026FirstChunk.ndjson + segment2026SecondChunk.ndjson;
+  const routing = buildRoutingIndex([
+    {
+      cnpj: fixture.cnpj,
+      references: [
+        {
+          segmentId: "2017",
+          offset: 0,
+          length: segment2017.ndjson.length,
+        },
+        {
+          segmentId: "2026-03",
+          offset: 0,
+          length: segment2026Ndjson.length,
+        },
+      ],
+    },
+  ]);
+  const bucket = new FakeBucket({
+    "files/info.json": JSON.stringify({
+      datasets: {
+        licitacoes: {
+          json_property_name: "licitacoes",
+          routing_release_id: "routing-2",
+          segment_collection_property: "licitacoes",
+          segments: [
+            { id: "2017", storage_release_id: "segment-2017" },
+            { id: "2020", storage_release_id: "segment-2020" },
+            { id: "2026-03", storage_release_id: "segment-2026-03" },
+          ],
+        },
+      },
+    }),
+    "files/shards/modules/licitacoes/routing/routing-2/12A.routing.bin": routing,
+    "files/shards/modules/licitacoes/segments/2017/segment-2017/12A.ndjson":
+      segment2017.ndjson,
+    "files/shards/modules/licitacoes/segments/2026-03/segment-2026-03/12A.ndjson":
+      segment2026Ndjson,
+  });
+
+  const response = await worker.fetch(
+    new Request(
+      `https://worker.invalid/${fixture.cnpj}?datasets=licitacoes`,
+    ),
+    {
+      CNPJ_BUCKET: bucket as unknown as R2Bucket,
+      ASSETS: new FakeAssetsFetcher({}) as unknown as Fetcher,
+    } satisfies Env,
+    createExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    licitacoes: {
+      cnpj: fixture.cnpj,
+      updated_at: "2026-03-31T00:00:00Z",
+      licitacoes: [
+        { id: "L-2017", data: "2017-03-10" },
+        { id: "L-2026", data: "2026-03-12" },
+      ],
+    },
+  });
+  assert.deepEqual(bucket.gets, [
+    { key: "files/info.json", range: undefined },
+    {
+      key: "files/shards/modules/licitacoes/routing/routing-2/12A.routing.bin",
+      range: undefined,
+    },
+    {
+      key:
+        "files/shards/modules/licitacoes/segments/2017/segment-2017/12A.ndjson",
+      range: { offset: 0, length: segment2017.ndjson.length },
+    },
+    {
+      key:
+        "files/shards/modules/licitacoes/segments/2026-03/segment-2026-03/12A.ndjson",
+      range: { offset: 0, length: segment2026Ndjson.length },
     },
   ]);
 });
@@ -727,7 +898,25 @@ test("fetch returns JSON Schema 2020-12 on /schema", async () => {
   }
 
   const defs = schema["$defs"] as Record<string, unknown>;
-  for (const def of ["Telefone", "QsaMember", "CnoPayload", "CnoObra", "CodigoDescricao", "RntrcPayload"]) {
+  for (const def of [
+    "Telefone",
+    "QsaMember",
+    "CnoPayload",
+    "CnoObra",
+    "CodigoDescricao",
+    "RntrcPayload",
+    "PortalFavorecidosPjPayload",
+    "PortalSancoesPayload",
+    "PortalCepimPayload",
+    "PortalAcordosLenienciaPayload",
+    "PortalLicitacoesPayload",
+    "PortalContratosPayload",
+    "PortalRenunciasPayload",
+    "PortalNotasFiscaisPayload",
+    "PortalConveniosPayload",
+    "PortalEmendasPayload",
+    "PortalEmendasDocumentosPayload",
+  ]) {
     assert.ok(defs[def], `expected $defs to include ${def}`);
   }
 
@@ -740,6 +929,34 @@ test("fetch returns JSON Schema 2020-12 on /schema", async () => {
       { $ref: "#/$defs/RntrcPayload" },
     ],
   );
+  for (const [key, definition] of [
+    ["favorecidos_pj", "PortalFavorecidosPjPayload"],
+    ["ceis", "PortalSancoesPayload"],
+    ["cepim", "PortalCepimPayload"],
+    ["cnep", "PortalSancoesPayload"],
+    ["acordos_leniencia", "PortalAcordosLenienciaPayload"],
+    ["licitacoes", "PortalLicitacoesPayload"],
+    ["contratos", "PortalContratosPayload"],
+    ["renuncias_fiscais", "PortalRenunciasPayload"],
+    ["notas_fiscais", "PortalNotasFiscaisPayload"],
+    ["convenios", "PortalConveniosPayload"],
+    ["emendas_parlamentares", "PortalEmendasPayload"],
+    ["emendas_documentos", "PortalEmendasDocumentosPayload"],
+  ]) {
+    assert.deepEqual(
+      properties[key]?.oneOf,
+      [
+        { type: "null" },
+        { $ref: `#/$defs/${definition}` },
+      ],
+    );
+
+    const payloadDefinition = defs[definition] as Record<string, unknown>;
+    assert.ok(
+      !(payloadDefinition.required as string[]).includes("cnpj"),
+      definition + " must keep CNPJ as the outer lookup key",
+    );
+  }
 
   const fixture = createLookupFixture();
   for (const key of Object.keys(fixture.payload)) {

@@ -1,8 +1,10 @@
-import type { DatasetDetail, PublishedDataset } from '../types';
+import { getBigQueryTable } from '../data/bigquery';
+import type { DatasetDetail, DatasetKey, PublishedDataset } from '../types';
 import { formatBytes, formatCount, formatDate } from '../utils/format';
 import { DownloadIcon } from './Icons';
 
 interface DatasetInfoPanelProps {
+  datasetKey: DatasetKey;
   dataset: DatasetDetail;
   published?: PublishedDataset;
   isLoading?: boolean;
@@ -16,6 +18,7 @@ function publicationValue(isLoading: boolean, published: PublishedDataset | unde
 }
 
 export function DatasetInfoPanel({
+  datasetKey,
   dataset,
   published,
   isLoading = false,
@@ -42,6 +45,10 @@ export function DatasetInfoPanel({
         <div>
           <dt>Schema</dt>
           <dd>Versão {dataset.schemaVersion}</dd>
+        </div>
+        <div>
+          <dt>BigQuery</dt>
+          <dd><code>{getBigQueryTable(datasetKey)}</code></dd>
         </div>
         <div>
           <dt>Última publicação</dt>
@@ -73,6 +80,23 @@ export function DatasetInfoPanel({
                   <dt>MD5</dt>
                   <dd className="dataset-download-checksum">{published.zip_md5checksum || '-'}</dd>
                 </div>
+              </dl>
+            ) : published?.segments?.length ? (
+              <dl className="dataset-download-list">
+                {published.segments.map((segment) => (
+                  <div key={segment.id}>
+                    <dt>Segmento {segment.id}</dt>
+                    <dd>
+                      {segment.zip_url ? (
+                        <a href={segment.zip_url} target="_blank" rel="noopener" download="">
+                          Baixar ({formatBytes(segment.zip_size)})
+                        </a>
+                      ) : (
+                        'ZIP indisponível'
+                      )}
+                    </dd>
+                  </div>
+                ))}
               </dl>
             ) : (
               <span>{isLoading ? 'Carregando...' : 'Download indisponível no momento.'}</span>

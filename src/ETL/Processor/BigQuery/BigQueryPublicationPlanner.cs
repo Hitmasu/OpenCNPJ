@@ -86,16 +86,56 @@ internal static class BigQueryPublicationPlanner
             throw new InvalidOperationException($"Tabela BigQuery {tableName} não possui arquivos Parquet para publicação.");
 
         return sourcePaths
-            .Select((sourcePath, index) =>
-            {
-                var normalized = RequireValue(sourcePath, $"BigQuery source path {index + 1} for {tableName}");
-                if (!File.Exists(normalized))
-                    throw new FileNotFoundException($"Parquet da tabela BigQuery {tableName} não encontrado em {normalized}.", normalized);
-
-                return normalized;
-            })
+            .SelectMany((sourcePath, index) =>
+                ExpandSourcePath(
+                    tableName,
+                    RequireValue(
+                        sourcePath,
+                        $"BigQuery source path {index + 1} for {tableName}")))
+            .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static IReadOnlyList<string> ExpandSourcePath(
+        string tableName,
+        string sourcePath)
+    {
+        if (File.Exists(sourcePath))
+            return [sourcePath];
+
+        if (!sourcePath.Contains('*', StringComparison.Ordinal)
+            && !sourcePath.Contains('?', StringComparison.Ordinal))
+        {
+            throw new FileNotFoundException(
+                $"Parquet da tabela BigQuery {tableName} não encontrado em {sourcePath}.",
+                sourcePath);
+        }
+
+        var directory = Path.GetDirectoryName(sourcePath);
+        var pattern = Path.GetFileName(sourcePath);
+        if (string.IsNullOrWhiteSpace(directory)
+            || string.IsNullOrWhiteSpace(pattern)
+            || !Directory.Exists(directory))
+        {
+            throw new FileNotFoundException(
+                $"Parquet da tabela BigQuery {tableName} não encontrado para o padrão {sourcePath}.",
+                sourcePath);
+        }
+
+        var matches = Directory
+            .EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly)
+            .Where(path => path.EndsWith(".parquet", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        if (matches.Length == 0)
+        {
+            throw new FileNotFoundException(
+                $"Parquet da tabela BigQuery {tableName} não encontrado para o padrão {sourcePath}.",
+                sourcePath);
+        }
+
+        return matches;
     }
 }
 

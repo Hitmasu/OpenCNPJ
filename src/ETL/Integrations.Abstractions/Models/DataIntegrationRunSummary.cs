@@ -11,7 +11,8 @@ public sealed record DataIntegrationRunSummary(
     bool RequiresFullPublish = false,
     DataIntegrationHashState? StateToPersist = null,
     bool ShouldPersistState = false,
-    bool HasMetadataChanges = false)
+    bool HasMetadataChanges = false,
+    IReadOnlyList<DataIntegrationSegment>? Segments = null)
 {
     public bool HasChanges => ChangedCnpjs.Count > 0;
 

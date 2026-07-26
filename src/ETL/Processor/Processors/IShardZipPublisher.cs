@@ -15,4 +15,11 @@ internal interface IShardZipPublisher
         string releaseId,
         string outputRootDir,
         CancellationToken cancellationToken = default);
+
+    Task<ZipArtifactPublication> PublishModuleSegmentAsync(
+        string moduleKey,
+        string segmentId,
+        string releaseId,
+        string outputRootDir,
+        CancellationToken cancellationToken = default);
 }

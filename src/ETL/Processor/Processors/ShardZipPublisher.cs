@@ -57,6 +57,37 @@ internal sealed class ShardZipPublisher : IShardZipPublisher
             cancellationToken);
     }
 
+    public async Task<ZipArtifactPublication> PublishModuleSegmentAsync(
+        string moduleKey,
+        string segmentId,
+        string releaseId,
+        string outputRootDir,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ModuleShardExporter.TryParseSegmentId(segmentId, out _))
+        {
+            throw new ArgumentException(
+                "O segmento deve usar YYYY ou YYYY-MM.",
+                nameof(segmentId));
+        }
+
+        var localShardDir = Path.Combine(
+            outputRootDir,
+            "shards",
+            "modules",
+            moduleKey.Trim('/'),
+            "segments",
+            segmentId,
+            "releases",
+            releaseId.Trim('/'));
+        return await PublishAsync(
+            localShardDir,
+            Path.Combine(localShardDir, ZipFileName),
+            moduleKey,
+            cancellationToken,
+            segmentId);
+    }
+
     internal static async Task<ZipArtifactPublication> BuildLocalZipForTest(
         string sourceDir,
         string localZipPath,
@@ -75,7 +106,8 @@ internal sealed class ShardZipPublisher : IShardZipPublisher
         string preferredLocalShardDir,
         string localZipPath,
         string datasetKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? segmentId = null)
     {
         var shardSourceDir = preferredLocalShardDir;
         if (!HasShardFiles(shardSourceDir))
@@ -92,7 +124,7 @@ internal sealed class ShardZipPublisher : IShardZipPublisher
         AnsiConsole.MarkupLine(
             $"[cyan]Compactando ZIP do dataset {datasetKey.EscapeMarkup()}...[/] [grey](arquivos: {shardFileCount}, destino: {localZipPath.EscapeMarkup()})[/]");
         var metadata = await BuildZipAsync(shardSourceDir, localZipPath, cancellationToken);
-        var remoteZipPath = BuildRemoteZipPath(datasetKey);
+        var remoteZipPath = BuildRemoteZipPath(datasetKey, segmentId);
         AnsiConsole.MarkupLine(
             $"[grey]ZIP do dataset {datasetKey.EscapeMarkup()} pronto:[/] [cyan]{FormatSize(metadata.Size)}[/], md5 [cyan]{metadata.Md5Checksum.EscapeMarkup()}[/]. [grey]Enviando para {remoteZipPath.EscapeMarkup()}[/]");
         var uploaded = await RcloneClient.UploadFileAsync(localZipPath, remoteZipPath);
@@ -104,7 +136,7 @@ internal sealed class ShardZipPublisher : IShardZipPublisher
         return new ZipArtifactPublication(
             true,
             metadata.Size,
-            BuildPublicZipUrl(datasetKey),
+            BuildPublicZipUrl(datasetKey, segmentId),
             metadata.Md5Checksum);
     }
 
@@ -173,11 +205,17 @@ internal sealed class ShardZipPublisher : IShardZipPublisher
         return $"{value:0.##} {units[unitIndex]}";
     }
 
-    private static string BuildRemoteZipPath(string datasetKey) =>
-        $"releases/{datasetKey.Trim('/')}/{ZipFileName}";
+    private static string BuildRemoteZipPath(
+        string datasetKey,
+        string? segmentId = null) =>
+        string.IsNullOrWhiteSpace(segmentId)
+            ? $"releases/{datasetKey.Trim('/')}/{ZipFileName}"
+            : $"releases/{datasetKey.Trim('/')}/segments/{segmentId}/{ZipFileName}";
 
-    private static string BuildPublicZipUrl(string datasetKey) =>
-        $"{PublicZipBaseUrl}/{BuildRemoteZipPath(datasetKey)}";
+    private static string BuildPublicZipUrl(
+        string datasetKey,
+        string? segmentId = null) =>
+        $"{PublicZipBaseUrl}/{BuildRemoteZipPath(datasetKey, segmentId)}";
 
     private static void DeleteIfExists(string path)
     {

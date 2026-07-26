@@ -43,7 +43,7 @@ public sealed class DataIntegrationOrchestrator
                             || !cacheMatchesPublishedInfo
                             || !string.Equals(publishedState.SchemaVersion, descriptor.SchemaVersion, StringComparison.Ordinal)
                             || now - publishedState.UpdatedAt >= descriptor.RefreshInterval
-                            || !ParquetGlobExists(cachedState.ParquetGlob);
+                            || !PublicationFilesExist(cachedState);
             var source = shouldRun && integration is IDataIntegrationSourceProvider sourceProvider
                 ? await sourceProvider.GetSourceAsync(cancellationToken)
                 : null;
@@ -72,7 +72,8 @@ public sealed class DataIntegrationOrchestrator
                 result.SourceVersion,
                 result.UpdatedAt,
                 result.ParquetGlob,
-                descriptor.SchemaVersion);
+                descriptor.SchemaVersion,
+                result.Segments);
             var shouldPersistState = runIntegration || changedCnpjs.Count > 0 || metadataChanged;
 
             summaries.Add(new DataIntegrationRunSummary(
@@ -86,7 +87,8 @@ public sealed class DataIntegrationOrchestrator
                 RequiresFullPublish: publishedState is null || !cacheMatchesPublishedInfo,
                 currentState,
                 shouldPersistState,
-                metadataChanged));
+                metadataChanged,
+                result.Segments));
         }
 
         return summaries;
@@ -137,10 +139,7 @@ public sealed class DataIntegrationOrchestrator
         if (!string.Equals(previousState.SchemaVersion, descriptor.SchemaVersion, StringComparison.Ordinal))
             return false;
 
-        if (previousState.Hashes.Count == 0)
-            return false;
-
-        if (!ParquetGlobExists(previousState.ParquetGlob))
+        if (!PublicationFilesExist(previousState))
             return false;
 
         if (!string.IsNullOrWhiteSpace(previousState.SourceVersion)
@@ -200,5 +199,16 @@ public sealed class DataIntegrationOrchestrator
             : "*";
 
         return Directory.EnumerateFiles(baseDirectory, searchPattern, SearchOption.AllDirectories).Any();
+    }
+
+    private static bool PublicationFilesExist(DataIntegrationHashState state)
+    {
+        if (state.EffectiveSegments.Count > 0)
+        {
+            return state.EffectiveSegments.All(segment =>
+                ParquetGlobExists(segment.ParquetGlob));
+        }
+
+        return ParquetGlobExists(state.ParquetGlob);
     }
 }

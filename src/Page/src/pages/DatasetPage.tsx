@@ -28,7 +28,13 @@ export function DatasetPage({ datasetKey, info, isLoading }: DatasetPageProps) {
           <p>{dataset.sourceDescription}</p>
         </section>
 
-        <DatasetInfoPanel className="doc-section" dataset={dataset} published={published} isLoading={isLoading} />
+        <DatasetInfoPanel
+          className="doc-section"
+          datasetKey={datasetKey}
+          dataset={dataset}
+          published={published}
+          isLoading={isLoading}
+        />
 
         <section className="doc-section">
           <h2>Schema dos dados</h2>

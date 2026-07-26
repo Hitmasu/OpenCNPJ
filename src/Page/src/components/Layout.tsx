@@ -1,5 +1,6 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { navigationItems } from '../data/navigation';
+import type { NavigationItem } from '../data/navigation';
 import { GitHubStarsBadge } from './GitHubStarsBadge';
 import { HeartIcon, PixIcon } from './Icons';
 
@@ -17,8 +18,43 @@ function isActiveLink(href: string | undefined, activeRoute: string) {
   return activeRoute === route || activeRoute.startsWith(`${route}/`);
 }
 
-function isActiveGroup(item: { href?: string; children?: { href?: string }[] }, activeRoute: string) {
-  return isActiveLink(item.href, activeRoute) || Boolean(item.children?.some((child) => isActiveLink(child.href, activeRoute)));
+function isActiveGroup(item: NavigationItem, activeRoute: string): boolean {
+  return isActiveLink(item.href, activeRoute)
+    || Boolean(item.children?.some((child) => isActiveGroup(child, activeRoute)));
+}
+
+function NavigationDisclosure({
+  item,
+  activeRoute,
+}: {
+  item: NavigationItem;
+  activeRoute: string;
+}) {
+  const isActive = isActiveGroup(item, activeRoute);
+
+  return (
+    <details className="wiki-nav-disclosure" open={isActive || undefined}>
+      <summary className={isActive ? 'active' : undefined}>
+        {item.label}
+      </summary>
+      <div className="wiki-nav-grandchildren">
+        {item.children?.map((child) => {
+          const childActive = isActiveLink(child.href, activeRoute);
+
+          return (
+            <a
+              className={childActive ? 'active' : undefined}
+              key={child.href}
+              href={child.href}
+              aria-current={childActive ? 'page' : undefined}
+            >
+              {child.label}
+            </a>
+          );
+        })}
+      </div>
+    </details>
+  );
 }
 
 function SupportActions({ className = '' }: { className?: string }) {
@@ -80,8 +116,18 @@ export function Layout({ children, activeRoute }: LayoutProps) {
                   {item.children ? (
                     <div className="wiki-nav-children">
                       {item.children.map((child) => {
-                        const childActive = isActiveLink(child.href, activeRoute);
+                        if (child.children) {
+                          const childActive = isActiveGroup(child, activeRoute);
+                          return (
+                            <NavigationDisclosure
+                              key={`${child.label}-${childActive ? 'active' : 'inactive'}`}
+                              item={child}
+                              activeRoute={activeRoute}
+                            />
+                          );
+                        }
 
+                        const childActive = isActiveLink(child.href, activeRoute);
                         return (
                           <a className={childActive ? 'active' : undefined} key={child.href} href={child.href} aria-current={childActive ? 'page' : undefined}>
                             {child.label}

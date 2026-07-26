@@ -37,31 +37,40 @@ export function parseBinaryShardIndex(buffer: ArrayBuffer, assetPath: string): B
 }
 
 export function findBinaryIndexEntry(index: BinaryShardIndex, cnpj: string): BinaryIndexEntry | null {
+  return findBinaryIndexEntries(index, cnpj)[0] ?? null;
+}
+
+export function findBinaryIndexEntries(index: BinaryShardIndex, cnpj: string): BinaryIndexEntry[] {
   const target = textEncoder.encode(cnpj);
   if (target.length !== CNPJ_LENGTH) {
-    return null;
+    return [];
   }
 
   let low = 0;
-  let high = index.recordCount - 1;
+  let high = index.recordCount;
 
-  while (low <= high) {
-    const mid = (low + high) >> 1;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
     const entryStart = INDEX_HEADER_SIZE + (mid * INDEX_ENTRY_SIZE);
     const compareResult = compareIndexedCnpj(index.bytes, entryStart, target);
-
-    if (compareResult === 0) {
-      return readBinaryIndexEntry(index.view, entryStart);
-    }
-
     if (compareResult < 0) {
       low = mid + 1;
     } else {
-      high = mid - 1;
+      high = mid;
     }
   }
 
-  return null;
+  const entries: BinaryIndexEntry[] = [];
+  for (let indexPosition = low; indexPosition < index.recordCount; indexPosition++) {
+    const entryStart = INDEX_HEADER_SIZE + (indexPosition * INDEX_ENTRY_SIZE);
+    if (compareIndexedCnpj(index.bytes, entryStart, target) !== 0) {
+      break;
+    }
+
+    entries.push(readBinaryIndexEntry(index.view, entryStart));
+  }
+
+  return entries;
 }
 
 function compareIndexedCnpj(bytes: Uint8Array, entryStart: number, target: Uint8Array): number {
@@ -83,4 +92,3 @@ function readBinaryIndexEntry(view: DataView, entryStart: number): BinaryIndexEn
 
   return { offset, length };
 }
-

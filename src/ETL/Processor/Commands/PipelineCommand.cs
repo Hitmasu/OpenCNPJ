@@ -35,6 +35,10 @@ public class PipelineSettings : CommandSettings
     [Description("Não gera nem publica data.zip. Útil para execuções locais de teste/performance.")]
     public bool SkipZip { get; init; }
 
+    [CommandOption("--resume-existing-release")]
+    [Description("Reutiliza artefatos locais e remotos já concluídos para o release informado")]
+    public bool ResumeExistingRelease { get; init; }
+
 }
 
 public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
@@ -161,7 +165,8 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                 releaseId,
                 integrationSummaries,
                 publishedInfo,
-                AppConfig.Current.Paths.OutputDir);
+                AppConfig.Current.Paths.OutputDir,
+                settings.ResumeExistingRelease);
 
             var baseZip = receitaChanged
                 ? await zipPublisher.PublishBaseAsync(
@@ -267,13 +272,27 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
 
         foreach (var source in DataIntegrationShardSource.FromRunSummaries(integrationSummaries))
         {
+            var parquetPaths = source.EffectiveSegments.Count > 0
+                ? source.EffectiveSegments
+                    .Select(segment => segment.ParquetGlob)
+                    .ToArray()
+                : [source.ParquetGlob
+                   ?? throw new InvalidOperationException(
+                       $"O módulo {source.Key} não informou Parquet.")];
             var bigQuerySource = source.Key switch
             {
-                CnoBigQueryParquetExporter.TableName => await new CnoBigQueryParquetExporter(source.ParquetGlob)
+                CnoBigQueryParquetExporter.TableName => await new CnoBigQueryParquetExporter(parquetPaths.Single())
                     .MaterializeAsync(),
-                RntrcBigQueryParquetExporter.TableName => await new RntrcBigQueryParquetExporter(source.ParquetGlob)
+                RntrcBigQueryParquetExporter.TableName => await new RntrcBigQueryParquetExporter(parquetPaths.Single())
                     .MaterializeAsync(),
-                _ => new BigQueryParquetSource(source.Key, [source.ParquetGlob])
+                _ => new BigQueryParquetSource(
+                    source.Key,
+                    await BigQueryParquetCompactor.MaterializeAsync(
+                        source.Key,
+                        parquetPaths,
+                        AppConfig.Current.Paths.ParquetDir,
+                        BigQueryParquetCompactor.ResolveSettings(
+                            AppConfig.Current)))
             };
 
             sources.Add(bigQuerySource);

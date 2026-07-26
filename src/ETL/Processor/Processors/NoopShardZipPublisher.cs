@@ -24,4 +24,16 @@ internal sealed class NoopShardZipPublisher : IShardZipPublisher
         AnsiConsole.MarkupLine($"[yellow]ZIP do módulo {moduleKey.EscapeMarkup()} ignorado por --skip-zip.[/]");
         return Task.FromResult(ZipArtifactPublication.Missing);
     }
+
+    public Task<ZipArtifactPublication> PublishModuleSegmentAsync(
+        string moduleKey,
+        string segmentId,
+        string releaseId,
+        string outputRootDir,
+        CancellationToken cancellationToken = default)
+    {
+        AnsiConsole.MarkupLine(
+            $"[yellow]ZIP do segmento {moduleKey.EscapeMarkup()}/{segmentId.EscapeMarkup()} ignorado por --skip-zip.[/]");
+        return Task.FromResult(ZipArtifactPublication.Missing);
+    }
 }
