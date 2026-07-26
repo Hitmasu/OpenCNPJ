@@ -113,10 +113,13 @@ public static class RcloneClient
                                   $"--retries=-1 --retries-sleep=60s --low-level-retries=10";
 
                     var result = await RunRcloneCommandAsync(command, progressTask);
-                    var remoteHashes = await ListRemoteChecksumsAsync(remoteRelativePath, ["*.ndjson", "*.index.bin"]);
+                    var remoteHashes = await ListRemoteChecksumsAsync(
+                        remoteRelativePath,
+                        ["*.ndjson", "*.index.bin", "*.routing.bin"]);
                     var remaining = relativeFiles
                         .Where(path => path.EndsWith(".ndjson", StringComparison.OrdinalIgnoreCase)
-                                       || path.EndsWith(".index.bin", StringComparison.OrdinalIgnoreCase))
+                                       || path.EndsWith(".index.bin", StringComparison.OrdinalIgnoreCase)
+                                       || path.EndsWith(".routing.bin", StringComparison.OrdinalIgnoreCase))
                         .Count(path => !remoteHashes.ContainsKey(path));
 
                     if (result.ExitCode == 0 && remaining == 0)
@@ -329,6 +332,35 @@ public static class RcloneClient
     {
         var remote = RemoteBase + "/" + remoteRelativePath.TrimStart('/');
         return await CopyToAsync(remote, localFilePath);
+    }
+
+    public static async Task<bool> DownloadFolderAsync(
+        string remoteRelativePath,
+        string localFolderPath)
+    {
+        try
+        {
+            Directory.CreateDirectory(localFolderPath);
+            var remote = RemoteBase + "/" + remoteRelativePath.Trim('/');
+            var result = await RunRcloneCommandAsync(
+                $"copy \"{remote}\" \"{localFolderPath}\" --checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off");
+            if (result.ExitCode == 0)
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(result.Error))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]⚠️ rclone download de diretório falhou: {result.Error.EscapeMarkup()}[/]");
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow]⚠️ Erro no download de diretório via rclone: {ex.Message.EscapeMarkup()}[/]");
+            return false;
+        }
     }
 
     public static async Task<bool> CopyToAsync(string remotePath, string localFilePath)

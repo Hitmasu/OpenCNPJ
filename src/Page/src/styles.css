@@ -177,7 +177,8 @@ code{
   margin:0;
 }
 .wiki-nav a,
-.wiki-nav-label{
+.wiki-nav-label,
+.wiki-nav-disclosure summary{
   display:block;
   border-radius:6px;
   color:var(--muted);
@@ -187,6 +188,8 @@ code{
 }
 .wiki-nav a:hover,
 .wiki-nav a.active,
+.wiki-nav-disclosure summary:hover,
+.wiki-nav-disclosure summary.active,
 .wiki-nav-label.active{
   background:var(--surface);
   color:var(--text);
@@ -205,6 +208,45 @@ code{
   border-left:1px solid var(--border);
 }
 .wiki-nav-children a{
+  color:var(--subtle);
+  font-size:12px;
+  padding:6px 8px;
+}
+.wiki-nav-disclosure{
+  margin:1px 0 3px;
+}
+.wiki-nav-disclosure summary{
+  position:relative;
+  cursor:pointer;
+  list-style:none;
+  padding-right:28px;
+  font-size:12px;
+  font-weight:700;
+}
+.wiki-nav-disclosure summary::-webkit-details-marker{display:none}
+.wiki-nav-disclosure summary::after{
+  position:absolute;
+  top:50%;
+  right:10px;
+  width:6px;
+  height:6px;
+  border-right:1.5px solid currentColor;
+  border-bottom:1.5px solid currentColor;
+  content:"";
+  transform:translateY(-70%) rotate(45deg);
+  transition:transform .15s ease;
+}
+.wiki-nav-disclosure[open] summary::after{
+  transform:translateY(-30%) rotate(225deg);
+}
+.wiki-nav-grandchildren{
+  display:grid;
+  gap:1px;
+  margin:2px 0 4px 8px;
+  padding-left:10px;
+  border-left:1px solid var(--border);
+}
+.wiki-nav-grandchildren a{
   color:var(--subtle);
   font-size:12px;
   padding:6px 8px;
@@ -870,7 +912,8 @@ summary:focus-visible{
     scrollbar-width:thin;
   }
   .wiki-nav a,
-  .wiki-nav-label{
+  .wiki-nav-label,
+  .wiki-nav-disclosure summary{
     flex:0 0 auto;
     white-space:nowrap;
   }
@@ -880,6 +923,21 @@ summary:focus-visible{
     flex:0 0 auto;
   }
   .wiki-nav-children{
+    display:flex;
+    gap:4px;
+    margin:0;
+    padding:0;
+    border-left:0;
+  }
+  .wiki-nav-disclosure[open]{
+    display:flex;
+    align-items:flex-start;
+    gap:4px;
+  }
+  .wiki-nav-disclosure summary{
+    flex:0 0 auto;
+  }
+  .wiki-nav-grandchildren{
     display:flex;
     gap:4px;
     margin:0;

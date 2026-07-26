@@ -292,6 +292,164 @@ public sealed class DataIntegrationOrchestratorTests
         }
     }
 
+    [TestMethod]
+    public async Task RunAsync_ShouldReuseAndPreserveSegmentStateWithoutGlobalCnpjHashes()
+    {
+        var tempRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"opencnpj-segment-state-{Guid.NewGuid():N}");
+        var segmentDirectory = Path.Combine(
+            tempRoot,
+            "parquet",
+            "integrations",
+            "licitacoes",
+            "segments",
+            "2024");
+        Directory.CreateDirectory(segmentDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(segmentDirectory, "part-000.parquet"),
+            "placeholder");
+        var segmentGlob = Path.Combine(segmentDirectory, "*.parquet");
+        var descriptor = new DataIntegrationDescriptor(
+            "licitacoes",
+            "licitacoes",
+            TimeSpan.FromHours(1),
+            "1",
+            "licitacoes");
+        var segment = new DataIntegrationSegment(
+            "2024",
+            "segment-v1",
+            DateTimeOffset.Parse("2025-01-01T00:00:00Z"),
+            segmentGlob,
+            10);
+        var state = new DataIntegrationHashState(
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            "catalog-v1",
+            DateTimeOffset.Parse("2026-07-20T00:00:00Z"),
+            null,
+            "1",
+            [segment]);
+        var source = new SourceFile(
+            new Uri("https://example.test/licitacoes/202607"),
+            "202607_Licitacoes.zip",
+            "catalog-v1",
+            null,
+            DateTimeOffset.Parse("2026-07-20T00:00:00Z"));
+        var integration = new FakeSourceIntegration(
+            descriptor,
+            source);
+        var orchestrator = new DataIntegrationOrchestrator(
+            [integration],
+            new FakeStateStore(state),
+            new Dictionary<string, DataIntegrationPublishedState>(
+                StringComparer.Ordinal)
+            {
+                ["licitacoes"] = new(
+                    "catalog-v1",
+                    DateTimeOffset.UtcNow.AddHours(-2),
+                    "1")
+            });
+
+        try
+        {
+            var summaries = await orchestrator.RunAsync(
+                "2026-07",
+                new DataIntegrationPaths(
+                    Path.Combine(tempRoot, "data"),
+                    Path.Combine(tempRoot, "parquet"),
+                    Path.Combine(tempRoot, "output"),
+                    Path.Combine(tempRoot, "downloads")));
+
+            Assert.AreEqual(
+                0,
+                integration.RunCount,
+                "O mesmo catálogo deve reutilizar os segmentos existentes.");
+            Assert.AreEqual(1, summaries.Single().Segments?.Count);
+            Assert.AreEqual(
+                segmentGlob,
+                summaries.Single().Segments?.Single().ParquetGlob);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RunAsync_ShouldReuseHashlessSnapshotWhenSourceIsUnchanged()
+    {
+        var tempRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"opencnpj-snapshot-state-{Guid.NewGuid():N}");
+        var parquetDirectory = Path.Combine(
+            tempRoot,
+            "parquet",
+            "integrations",
+            "convenios",
+            "convenios-parts");
+        Directory.CreateDirectory(parquetDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(parquetDirectory, "part-000.parquet"),
+            "placeholder");
+        var parquetGlob = Path.Combine(parquetDirectory, "*.parquet");
+        var descriptor = new DataIntegrationDescriptor(
+            "convenios",
+            "convenios",
+            TimeSpan.FromHours(1),
+            "1");
+        var state = new DataIntegrationHashState(
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            "snapshot-v1",
+            DateTimeOffset.Parse("2026-07-20T00:00:00Z"),
+            parquetGlob,
+            "1");
+        var source = new SourceFile(
+            new Uri("https://example.test/convenios/202607"),
+            "202607_Convenios.zip",
+            "snapshot-v1",
+            null,
+            DateTimeOffset.Parse("2026-07-20T00:00:00Z"));
+        var integration = new FakeSourceIntegration(
+            descriptor,
+            source);
+        var orchestrator = new DataIntegrationOrchestrator(
+            [integration],
+            new FakeStateStore(state),
+            new Dictionary<string, DataIntegrationPublishedState>(
+                StringComparer.Ordinal)
+            {
+                ["convenios"] = new(
+                    "snapshot-v1",
+                    DateTimeOffset.UtcNow.AddHours(-2),
+                    "1")
+            });
+
+        try
+        {
+            var summaries = await orchestrator.RunAsync(
+                "2026-07",
+                new DataIntegrationPaths(
+                    Path.Combine(tempRoot, "data"),
+                    Path.Combine(tempRoot, "parquet"),
+                    Path.Combine(tempRoot, "output"),
+                    Path.Combine(tempRoot, "downloads")));
+
+            Assert.AreEqual(
+                0,
+                integration.RunCount,
+                "O mesmo snapshot deve reutilizar os Parquets existentes.");
+            Assert.AreEqual(
+                parquetGlob,
+                summaries.Single().ParquetGlob);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class FakeIntegration(
         DataIntegrationDescriptor descriptor,
         DataIntegrationRunResult result) : IDataIntegration
@@ -306,6 +464,28 @@ public sealed class DataIntegrationOrchestratorTests
         {
             RunCount++;
             return Task.FromResult(result);
+        }
+    }
+
+    private sealed class FakeSourceIntegration(
+        DataIntegrationDescriptor descriptor,
+        SourceFile source) : IDataIntegration, IDataIntegrationSourceProvider
+    {
+        public int RunCount { get; private set; }
+
+        public DataIntegrationDescriptor Descriptor => descriptor;
+
+        public Task<SourceFile> GetSourceAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(source);
+
+        public Task<DataIntegrationRunResult> RunAsync(
+            DataIntegrationRunContext context,
+            CancellationToken cancellationToken = default)
+        {
+            RunCount++;
+            throw new AssertFailedException(
+                "A integração segmentada não deveria ser rematerializada.");
         }
     }
 

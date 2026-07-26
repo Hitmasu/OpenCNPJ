@@ -14,6 +14,7 @@ public class AppConfig
     public DownloaderSettings Downloader { get; set; } = new();
     public CnoIntegrationSettings CnoIntegration { get; set; } = new();
     public RntrcIntegrationSettings RntrcIntegration { get; set; } = new();
+    public PortalTransparenciaIntegrationSettings PortalTransparenciaIntegration { get; set; } = new();
     public BigQuerySettings BigQuery { get; set; } = new();
 
     public class PathsConfig
@@ -75,6 +76,17 @@ public class AppConfig
         public int RefreshHours { get; set; } = 24;
     }
 
+    public class PortalTransparenciaIntegrationSettings
+    {
+        public bool Enabled { get; set; } = true;
+        public string CatalogBaseUrl { get; set; } = string.Empty;
+        public string[] EnabledDatasets { get; set; } = [];
+        public int DuckDbThreads { get; set; } = 1;
+        public string DuckDbMemoryLimit { get; set; } = "512MB";
+        public string DuckDbMaxTempDirectorySize { get; set; } = "20GB";
+        public int ProcessingPartitions { get; set; } = 64;
+    }
+
     public class BigQuerySettings
     {
         public bool Enabled { get; set; } = false;
@@ -84,6 +96,9 @@ public class AppConfig
         public string Location { get; set; } = string.Empty;
         public string BqExecutable { get; set; } = "bq";
         public bool KeepStagingTables { get; set; } = false;
+        public int CompactionThreads { get; set; } = 1;
+        public string CompactionMemoryLimit { get; set; } = "4GB";
+        public string CompactionMaxTempDirectorySize { get; set; } = "100GB";
     }
 
     public static AppConfig Current { get; private set; } = new();

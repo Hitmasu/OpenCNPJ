@@ -1,9 +1,8 @@
 import { CodeBlock } from '../components/CodeBlock';
 import { SectionHeading } from '../components/SectionHeading';
+import { getBigQueryTable } from '../data/bigquery';
 
-const BIGQUERY_RECEITA_TABLE = 'opencnpj-bigquery.public.receita';
-const BIGQUERY_CNO_TABLE = 'opencnpj-bigquery.public.cno';
-const BIGQUERY_RNTRC_TABLE = 'opencnpj-bigquery.public.rntrc';
+const BIGQUERY_RECEITA_TABLE = getBigQueryTable('receita');
 const BIGQUERY_RECEITA_SQL_TABLE = `\`${BIGQUERY_RECEITA_TABLE}\``;
 
 export function AnalyticsPage() {
@@ -19,11 +18,11 @@ export function AnalyticsPage() {
         use as tabelas públicas do OpenCNPJ no BigQuery.
       </p>
 
-      <ul>
-        <li><code>{BIGQUERY_RECEITA_TABLE}</code> para Receita Federal.</li>
-        <li><code>{BIGQUERY_CNO_TABLE}</code> para Cadastro Nacional de Obras.</li>
-        <li><code>{BIGQUERY_RNTRC_TABLE}</code> para RNTRC.</li>
-      </ul>
+      <p>
+        O BigQuery público possui todos os datasets do OpenCNPJ. Cada página de dataset informa o nome da tabela
+        correspondente.
+      </p>
+      <p><strong>Exemplo — Receita Federal:</strong> BigQuery: <code>{BIGQUERY_RECEITA_TABLE}</code></p>
 
       <div className="actions">
         <a className="btn primary" href="https://bigquery.opencnpj.org" target="_blank" rel="noopener">Abrir no BigQuery</a>

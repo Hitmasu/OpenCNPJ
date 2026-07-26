@@ -4,7 +4,8 @@ public sealed record DataIntegrationDescriptor(
     string Key,
     string JsonPropertyName,
     TimeSpan RefreshInterval,
-    string SchemaVersion)
+    string SchemaVersion,
+    string? SegmentCollectionProperty = null)
 {
     private static readonly System.Text.RegularExpressions.Regex IdentifierPattern = new(
         "^[A-Za-z_][A-Za-z0-9_]*$",
@@ -29,5 +30,13 @@ public sealed record DataIntegrationDescriptor(
 
         if (string.IsNullOrWhiteSpace(SchemaVersion))
             throw new ArgumentException("A versão de schema da integração é obrigatória.", nameof(SchemaVersion));
+
+        if (SegmentCollectionProperty is not null
+            && !IdentifierPattern.IsMatch(SegmentCollectionProperty))
+        {
+            throw new ArgumentException(
+                "A propriedade de coleção segmentada deve ser um identificador ASCII simples.",
+                nameof(SegmentCollectionProperty));
+        }
     }
 }

@@ -12,9 +12,11 @@ WORKER_ASSETS_FILES_DIR="${WORKER_ASSETS_DIR}/files"
 WORKER_ASSETS_SHARDS_DIR="${WORKER_ASSETS_FILES_DIR}/shards"
 WORKER_GENERATED_RUNTIME_INFO="${WORKER_DIR}/src/generated-runtime-info.ts"
 DEFAULT_VALIDATE_CNPJ="60701190000104"
+PENDING_RELEASE_FILE="${ETL_DIR}/cnpj_shards/.pending-release-id"
 
 MONTH=""
 RELEASE_ID="${OPENCNPJ_RELEASE_ID:-}"
+RESUME_EXISTING_RELEASE="false"
 BASE_URL="${OPENCNPJ_BASE_URL:-}"
 VALIDATE_CNPJ="${OPENCNPJ_VALIDATE_CNPJ:-$DEFAULT_VALIDATE_CNPJ}"
 CLEANUP_ON_SUCCESS="false"
@@ -96,6 +98,54 @@ generate_release_id() {
   local seed
   seed="$(date -u +%Y%m%dT%H%M%SZ)|${MONTH:-latest}|$$|$RANDOM"
   printf '%s' "$seed" | shasum -a 256 | cut -c1-16
+}
+
+read_pending_release_id() {
+  [[ -f "$PENDING_RELEASE_FILE" ]] || return 0
+
+  local pending
+  pending="$(tr -d '[:space:]' < "$PENDING_RELEASE_FILE")"
+  if [[ "$pending" =~ ^[a-f0-9]{16}$ ]]; then
+    printf '%s\n' "$pending"
+  fi
+}
+
+discover_resumable_release_id() {
+  local modules_root="${ETL_DIR}/cnpj_shards/shards/modules"
+  [[ -d "$modules_root" ]] || return 0
+
+  declare -A completed_artifacts=()
+  local zip_path candidate
+  while IFS= read -r zip_path; do
+    candidate="$(basename "$(dirname "$zip_path")")"
+    [[ "$candidate" =~ ^[a-f0-9]{16}$ ]] || continue
+    if find "${ETL_DIR}/cnpj_shards" \
+        -path "*/releases/${candidate}/info.json" \
+        -type f -print -quit 2>/dev/null | grep -q .; then
+      continue
+    fi
+    completed_artifacts["$candidate"]=$(( ${completed_artifacts["$candidate"]:-0} + 1 ))
+  done < <(
+    find "$modules_root" \
+      -type f \
+      -name data.zip \
+      -path '*/releases/*/data.zip' \
+      -mtime -14 \
+      -print 2>/dev/null
+  )
+
+  local best="" best_count=0 count
+  for candidate in "${!completed_artifacts[@]}"; do
+    count="${completed_artifacts["$candidate"]}"
+    if (( count > best_count )); then
+      best="$candidate"
+      best_count="$count"
+    fi
+  done
+
+  if [[ -n "$best" ]]; then
+    printf '%s\n' "$best"
+  fi
 }
 
 resolve_dataset_key() {
@@ -526,14 +576,36 @@ delete_old_releases() {
     }
 
     function collectModuleReleases(info) {
-      const releasesByModule = new Map();
+      const releases = new Set();
       for (const [key, moduleInfo] of Object.entries(info?.datasets ?? {})) {
         if (key === "receita") continue;
-        const releases = releasesByModule.get(key) ?? new Set();
-        if (moduleInfo?.storage_release_id) releases.add(moduleInfo.storage_release_id);
-        releasesByModule.set(key, releases);
+        if (!Array.isArray(moduleInfo?.segments) && moduleInfo?.storage_release_id) {
+          releases.add(`${key}\t${moduleInfo.storage_release_id}`);
+        }
       }
-      return releasesByModule;
+      return releases;
+    }
+
+    function collectRoutingReleases(info) {
+      const releases = new Set();
+      for (const [key, moduleInfo] of Object.entries(info?.datasets ?? {})) {
+        if (moduleInfo?.routing_release_id) {
+          releases.add(`${key}\t${moduleInfo.routing_release_id}`);
+        }
+      }
+      return releases;
+    }
+
+    function collectSegmentReleases(info) {
+      const releases = new Set();
+      for (const [key, moduleInfo] of Object.entries(info?.datasets ?? {})) {
+        for (const segment of moduleInfo?.segments ?? []) {
+          if (segment?.id && segment?.storage_release_id) {
+            releases.add(`${key}\t${segment.id}\t${segment.storage_release_id}`);
+          }
+        }
+      }
+      return releases;
     }
 
     const newBase = collectBaseReleases(newInfo);
@@ -541,15 +613,21 @@ delete_old_releases() {
       if (!newBase.has(release)) console.log(`base\t${release}`);
     }
 
-    const oldModules = collectModuleReleases(oldInfo);
     const newModules = collectModuleReleases(newInfo);
-    for (const [key, oldReleases] of oldModules.entries()) {
-      const newReleases = newModules.get(key) ?? new Set();
-      for (const release of oldReleases) {
-        if (!newReleases.has(release)) console.log(`module\t${key}\t${release}`);
-      }
+    for (const value of collectModuleReleases(oldInfo)) {
+      if (!newModules.has(value)) console.log(`module\t${value}`);
     }
-  ' "$old_info" "$new_info" | while IFS=$'\t' read -r kind first second; do
+
+    const newRouting = collectRoutingReleases(newInfo);
+    for (const value of collectRoutingReleases(oldInfo)) {
+      if (!newRouting.has(value)) console.log(`routing\t${value}`);
+    }
+
+    const newSegments = collectSegmentReleases(newInfo);
+    for (const value of collectSegmentReleases(oldInfo)) {
+      if (!newSegments.has(value)) console.log(`segment\t${value}`);
+    }
+  ' "$old_info" "$new_info" | while IFS=$'\t' read -r kind first second third; do
     if [[ "$kind" == "base" && -n "$first" ]]; then
       local old_remote="${remote_base%/}/shards/releases/${first}"
       log "Removendo release base antigo ${first} em ${old_remote}"
@@ -557,6 +635,14 @@ delete_old_releases() {
     elif [[ "$kind" == "module" && -n "$first" && -n "$second" ]]; then
       local old_remote="${remote_base%/}/shards/modules/${first}/${second}"
       log "Removendo release antigo do módulo ${first}/${second} em ${old_remote}"
+      rclone purge "$old_remote"
+    elif [[ "$kind" == "routing" && -n "$first" && -n "$second" ]]; then
+      local old_remote="${remote_base%/}/shards/modules/${first}/routing/${second}"
+      log "Removendo roteamento antigo do módulo ${first}/${second} em ${old_remote}"
+      rclone purge "$old_remote"
+    elif [[ "$kind" == "segment" && -n "$first" && -n "$second" && -n "$third" ]]; then
+      local old_remote="${remote_base%/}/shards/modules/${first}/segments/${second}/${third}"
+      log "Removendo segmento antigo do módulo ${first}/${second}/${third} em ${old_remote}"
       rclone purge "$old_remote"
     fi
   done
@@ -575,8 +661,25 @@ capture_current_info() {
 require_bigquery_command_if_enabled
 
 if [[ -z "$RELEASE_ID" ]]; then
-  RELEASE_ID="$(generate_release_id)"
+  RELEASE_ID="$(read_pending_release_id)"
+  if [[ -n "$RELEASE_ID" ]]; then
+    RESUME_EXISTING_RELEASE="true"
+    log "Retomando release pendente: ${RELEASE_ID}"
+  else
+    RELEASE_ID="$(discover_resumable_release_id)"
+    if [[ -n "$RELEASE_ID" ]]; then
+      RESUME_EXISTING_RELEASE="true"
+      log "Release incompleto encontrado para retomada: ${RELEASE_ID}"
+    else
+      RELEASE_ID="$(generate_release_id)"
+    fi
+  fi
+elif find "${ETL_DIR}/cnpj_shards/shards/modules" \
+    -type d -path "*/releases/${RELEASE_ID}" -print -quit 2>/dev/null | grep -q .; then
+  RESUME_EXISTING_RELEASE="true"
 fi
+mkdir -p "$(dirname "$PENDING_RELEASE_FILE")"
+printf '%s\n' "$RELEASE_ID" > "$PENDING_RELEASE_FILE"
 OLD_INFO="$(capture_current_info || true)"
 OLD_RELEASE_ID=""
 if [[ -n "$OLD_INFO" ]]; then
@@ -589,6 +692,9 @@ if [[ -n "$OLD_RELEASE_ID" ]]; then
 fi
 
 PIPELINE_ARGS=(pipeline --release-id "$RELEASE_ID")
+if [[ "$RESUME_EXISTING_RELEASE" == "true" ]]; then
+  PIPELINE_ARGS+=(--resume-existing-release)
+fi
 if [[ -n "$MONTH" ]]; then
   PIPELINE_ARGS+=(--month "$MONTH")
 fi
@@ -602,6 +708,7 @@ set -e
 popd >/dev/null
 
 if [[ "$PIPELINE_EXIT_CODE" -eq 10 ]]; then
+  rm -f "$PENDING_RELEASE_FILE"
   log "Nenhuma base nova para publicar; deploy encerrado sem alterações."
   exit 0
 fi
@@ -650,4 +757,5 @@ fi
 log "Limpando shards staged do frontend"
 cleanup_worker_shard_assets
 
+rm -f "$PENDING_RELEASE_FILE"
 log "Deploy concluído com sucesso"

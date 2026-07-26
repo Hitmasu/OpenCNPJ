@@ -7,14 +7,21 @@ import { DatasetPage } from './pages/DatasetPage';
 import { FaqPage } from './pages/FaqPage';
 import { LibrariesPage } from './pages/LibrariesPage';
 import { LimitsPage } from './pages/LimitsPage';
+import { datasetOrder } from './data/datasets';
 import type { DatasetKey, PublishedInfo } from './types';
 import { DEFAULT_ROUTE, normalizeRoute, toHash } from './utils/router';
 
 const API_BASE_URL = 'https://api.opencnpj.org';
+const DATASET_ROUTE_PREFIX = '/datasets/';
+const DATASET_KEYS = new Set<string>(datasetOrder);
 
 function resolveDatasetRoute(route: string): DatasetKey | null {
-  const match = route.match(/^\/datasets\/(receita|cno|rntrc)$/);
-  return match ? (match[1] as DatasetKey) : null;
+  if (!route.startsWith(DATASET_ROUTE_PREFIX)) {
+    return null;
+  }
+
+  const datasetKey = route.slice(DATASET_ROUTE_PREFIX.length);
+  return DATASET_KEYS.has(datasetKey) ? datasetKey as DatasetKey : null;
 }
 
 function isDocumentationRoute(route: string) {

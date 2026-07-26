@@ -1,6 +1,22 @@
 import type { DatasetDetail, DatasetKey } from '../types';
 
-export const datasetOrder: DatasetKey[] = ['receita', 'cno', 'rntrc'];
+export const datasetOrder: DatasetKey[] = [
+  'receita',
+  'cno',
+  'rntrc',
+  'favorecidos_pj',
+  'ceis',
+  'cepim',
+  'cnep',
+  'acordos_leniencia',
+  'licitacoes',
+  'contratos',
+  'renuncias_fiscais',
+  'notas_fiscais',
+  'convenios',
+  'emendas_parlamentares',
+  'emendas_documentos',
+];
 
 export const datasetDetails: Record<DatasetKey, DatasetDetail> = {
   receita: {
@@ -12,7 +28,7 @@ export const datasetDetails: Record<DatasetKey, DatasetDetail> = {
     sourceDescription:
       'O Cadastro Nacional da Pessoa Jurídica identifica empresas e estabelecimentos no Brasil. Ele reúne dados usados para validar cadastros, conferir situação cadastral, localizar matriz e filiais, entender atividades econômicas, consultar endereço, porte, natureza jurídica, Simples/MEI e quadro societário.',
     schemaVersion: '1',
-    filter: 'dataset=receita',
+    filter: 'datasets=receita',
     description:
       'Base cadastral principal do CNPJ: estabelecimento, razão social, nome fantasia, CNAEs, endereço, situação cadastral, Simples/MEI e quadro societário.',
     schemaFields: [
@@ -43,7 +59,7 @@ export const datasetDetails: Record<DatasetKey, DatasetDetail> = {
     sourceDescription:
       'O Cadastro Nacional de Obras descreve obras de construção civil e seus responsáveis. Ele ajuda a identificar vínculos entre empresas e obras, acompanhar situação cadastral, localização, área informada, datas relevantes e dados do responsável pela obra.',
     schemaVersion: '2',
-    filter: 'dataset=cno',
+    filter: 'datasets=cno',
     description:
       'Obras vinculadas ao CNPJ responsável, incluindo dados de obra, situação, localização, área e vínculos conhecidos.',
     schemaFields: [
@@ -68,7 +84,7 @@ export const datasetDetails: Record<DatasetKey, DatasetDetail> = {
     sourceDescription:
       'O Registro Nacional de Transportadores Rodoviários de Cargas identifica transportadores autorizados a atuar no transporte rodoviário de cargas. Ele é útil para validar fornecedores logísticos, verificar situação do registro, categoria do transportador, município, UF e datas cadastrais.',
     schemaVersion: '1',
-    filter: 'dataset=rntrc',
+    filter: 'datasets=rntrc',
     description:
       'Registro do transportador: número do registro, categoria, situação, município, UF e datas cadastrais.',
     schemaFields: [
@@ -83,6 +99,262 @@ export const datasetDetails: Record<DatasetKey, DatasetDetail> = {
       { field: 'rntrc.municipio', type: 'string', description: 'Município do transportador.' },
       { field: 'rntrc.uf', type: 'string', description: 'UF do transportador.' },
       { field: 'rntrc.equiparado', type: 'boolean', description: 'Indica se o transportador consta como equiparado.' },
+    ],
+  },
+  favorecidos_pj: {
+    name: 'Favorecidos — Pessoa Jurídica',
+    shortName: 'Favorecidos PJ',
+    frequency: 'Mensal',
+    source: 'Portal da Transparência — Favorecidos PJ',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/favorecidos-pj',
+    sourceDescription:
+      'Cadastro empresarial publicado pela Controladoria-Geral da União na área de CNPJ do Portal da Transparência.',
+    schemaVersion: '1',
+    filter: 'datasets=favorecidos_pj',
+    description:
+      'Dados cadastrais dos favorecidos pessoa jurídica, enriquecidos pelos dicionários de CNAE e natureza jurídica do próprio arquivo oficial.',
+    schemaFields: [
+      { field: 'favorecidos_pj.updated_at', type: 'string', description: 'Timestamp ISO 8601 da atualização do dataset.' },
+      { field: 'favorecidos_pj.razao_social', type: 'string', description: 'Razão social publicada pelo Portal.' },
+      { field: 'favorecidos_pj.nome_fantasia', type: 'string', description: 'Nome fantasia publicado pelo Portal.' },
+      { field: 'favorecidos_pj.tipo_pessoa', type: 'string', description: 'Tipo de pessoa informado na fonte.' },
+      { field: 'favorecidos_pj.cnae', type: 'object', description: 'Código, descrição, seção e descrição da seção do CNAE.' },
+      { field: 'favorecidos_pj.natureza_juridica', type: 'object', description: 'Código, descrição e tipo da natureza jurídica.' },
+      { field: 'favorecidos_pj.endereco', type: 'object', description: 'Logradouro, número, complemento, CEP, bairro, município e UF.' },
+    ],
+  },
+  ceis: {
+    name: 'Cadastro de Empresas Inidôneas e Suspensas',
+    shortName: 'CEIS',
+    frequency: 'A cada quatro horas',
+    source: 'Portal da Transparência — CEIS',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/ceis',
+    sourceDescription:
+      'O arquivo oficial reúne sanções aplicadas por órgãos públicos.',
+    schemaVersion: '1',
+    filter: 'datasets=ceis',
+    description:
+      'Sanções do CEIS agrupadas por CNPJ, incluindo processo, categoria, vigência, publicação, órgão sancionador e fundamentação legal.',
+    schemaFields: [
+      { field: 'ceis.updated_at', type: 'string', description: 'Timestamp ISO 8601 da atualização do dataset.' },
+      { field: 'ceis.sancoes[].codigo', type: 'string', description: 'Código da sanção na fonte.' },
+      { field: 'ceis.sancoes[].nome_sancionado', type: 'string', description: 'Nome do sancionado informado pelo órgão.' },
+      { field: 'ceis.sancoes[].numero_processo', type: 'string', description: 'Número do processo relacionado à sanção.' },
+      { field: 'ceis.sancoes[].categoria', type: 'string', description: 'Categoria da sanção.' },
+      { field: 'ceis.sancoes[].data_inicio/data_final', type: 'string', description: 'Período informado para a sanção.' },
+      { field: 'ceis.sancoes[].orgao_sancionador', type: 'string', description: 'Órgão responsável pela sanção.' },
+      { field: 'ceis.sancoes[].fundamentacao_legal', type: 'string', description: 'Fundamentação legal publicada.' },
+    ],
+  },
+  cepim: {
+    name: 'Entidades sem Fins Lucrativos Impedidas',
+    shortName: 'CEPIM',
+    frequency: 'Diária',
+    source: 'Portal da Transparência — CEPIM',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/cepim',
+    sourceDescription:
+      'O CEPIM apresenta entidades privadas sem fins lucrativos impedidas de celebrar novos convênios, contratos de repasse ou termos de parceria com a administração pública federal.',
+    schemaVersion: '1',
+    filter: 'datasets=cepim',
+    description:
+      'Impedimentos agrupados por CNPJ da entidade, com convênio, órgão concedente e motivo informado.',
+    schemaFields: [
+      { field: 'cepim.updated_at', type: 'string', description: 'Timestamp ISO 8601 da atualização do dataset.' },
+      { field: 'cepim.impedimentos[].nome_entidade', type: 'string', description: 'Nome da entidade impedida.' },
+      { field: 'cepim.impedimentos[].numero_convenio', type: 'string', description: 'Número do convênio relacionado.' },
+      { field: 'cepim.impedimentos[].orgao_concedente', type: 'string', description: 'Órgão concedente informado.' },
+      { field: 'cepim.impedimentos[].motivo', type: 'string', description: 'Motivo do impedimento.' },
+    ],
+  },
+  cnep: {
+    name: 'Cadastro Nacional de Empresas Punidas',
+    shortName: 'CNEP',
+    frequency: 'A cada quatro horas',
+    source: 'Portal da Transparência — CNEP',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/cnep',
+    sourceDescription:
+      'O arquivo oficial consolida punições impostas a pessoas jurídicas com base na Lei Anticorrupção e em normas relacionadas.',
+    schemaVersion: '1',
+    filter: 'datasets=cnep',
+    description:
+      'Sanções e multas do CNEP agrupadas por CNPJ, com processo, categoria, vigência, órgão sancionador e fundamento legal.',
+    schemaFields: [
+      { field: 'cnep.updated_at', type: 'string', description: 'Timestamp ISO 8601 da atualização do dataset.' },
+      { field: 'cnep.sancoes[].codigo', type: 'string', description: 'Código da sanção na fonte.' },
+      { field: 'cnep.sancoes[].nome_sancionado', type: 'string', description: 'Nome da pessoa jurídica sancionada.' },
+      { field: 'cnep.sancoes[].numero_processo', type: 'string', description: 'Número do processo relacionado.' },
+      { field: 'cnep.sancoes[].categoria', type: 'string', description: 'Categoria da sanção.' },
+      { field: 'cnep.sancoes[].valor_multa', type: 'string', description: 'Valor da multa conforme publicado pela fonte.' },
+      { field: 'cnep.sancoes[].data_inicio/data_final', type: 'string', description: 'Período informado para a sanção.' },
+      { field: 'cnep.sancoes[].orgao_sancionador', type: 'string', description: 'Órgão responsável pela sanção.' },
+      { field: 'cnep.sancoes[].fundamentacao_legal', type: 'string', description: 'Fundamentação legal publicada.' },
+    ],
+  },
+  acordos_leniencia: {
+    name: 'Acordos de Leniência',
+    shortName: 'Acordos de leniência',
+    frequency: 'A cada quatro horas',
+    source: 'Portal da Transparência — Acordos de Leniência',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/acordos-leniencia',
+    sourceDescription:
+      'A base apresenta acordos celebrados com pessoas jurídicas e os efeitos vinculados a cada acordo. O OpenCNPJ associa os registros pelo CNPJ publicado no arquivo oficial.',
+    schemaVersion: '1',
+    filter: 'datasets=acordos_leniencia',
+    description:
+      'Acordos de leniência agrupados por CNPJ, incluindo situação, vigência, processo, termos, órgão sancionador e efeitos.',
+    schemaFields: [
+      { field: 'acordos_leniencia.updated_at', type: 'string', description: 'Timestamp ISO 8601 da atualização do dataset.' },
+      { field: 'acordos_leniencia.acordos[].id', type: 'string', description: 'Identificador do acordo na fonte.' },
+      { field: 'acordos_leniencia.acordos[].razao_social_receita', type: 'string', description: 'Razão social relacionada ao acordo.' },
+      { field: 'acordos_leniencia.acordos[].situacao', type: 'string', description: 'Situação atual do acordo.' },
+      { field: 'acordos_leniencia.acordos[].data_inicio/data_fim', type: 'string', description: 'Período de vigência informado.' },
+      { field: 'acordos_leniencia.acordos[].numero_processo', type: 'string', description: 'Número do processo relacionado.' },
+      { field: 'acordos_leniencia.acordos[].orgao_sancionador', type: 'string', description: 'Órgão responsável pelo acordo.' },
+      { field: 'acordos_leniencia.acordos[].efeitos', type: 'array', description: 'Efeitos e complementos vinculados ao acordo.' },
+    ],
+  },
+  licitacoes: {
+    name: 'Licitações',
+    shortName: 'Licitações',
+    frequency: 'Mensal',
+    source: 'Portal da Transparência — Licitações',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/licitacoes',
+    sourceDescription:
+      'Histórico processado a partir de 2013. Anos encerrados são publicados em segmentos anuais e o ano corrente em segmentos mensais. O arquivo oficial de dezembro de 2018 está truncado na origem e permanece documentado como lacuna.',
+    schemaVersion: '1',
+    filter: 'datasets=licitacoes',
+    description:
+      'Todas as licitações relacionadas ao CNPJ consultado como participante ou vencedor, incluindo dados gerais, participação por item, itens vencidos e empenhos relacionados. Exemplo: uma empresa que participou do Pregão L1 recebe registros tipo licitacao e participacao; se venceu um item, também recebe item_vencido.',
+    schemaFields: [
+      { field: 'licitacoes.updated_at', type: 'string', description: 'Timestamp mais recente entre os segmentos consultados.' },
+      { field: 'licitacoes.licitacoes[].tipo_registro', type: 'string', description: 'licitacao, participacao, item_vencido ou empenho.' },
+      { field: 'licitacoes.licitacoes[].numero/numero_processo', type: 'string', description: 'Identificadores usados para relacionar os arquivos oficiais.' },
+      { field: 'licitacoes.licitacoes[].objeto/situacao/modalidade', type: 'string', description: 'Dados gerais presentes no registro tipo licitacao.' },
+      { field: 'licitacoes.licitacoes[].item_codigo/item_descricao', type: 'string', description: 'Item relacionado à participação ou vitória.' },
+      { field: 'licitacoes.licitacoes[].empenho_codigo/valor_empenho', type: 'string', description: 'Dados do empenho quando tipo_registro é empenho.' },
+    ],
+  },
+  contratos: {
+    name: 'Contratos públicos',
+    shortName: 'Contratos',
+    frequency: 'Mensal',
+    source: 'Portal da Transparência — Contratações',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/compras',
+    sourceDescription:
+      'Histórico processado a partir de 2013. Anos encerrados são publicados em segmentos anuais e o ano corrente em segmentos mensais.',
+    schemaVersion: '1',
+    filter: 'datasets=contratos',
+    description:
+      'Contratos em que o CNPJ aparece como contratado, com itens, termos aditivos e apostilamentos relacionados. Exemplo: o contrato C1 gera um registro contrato e pode trazer registros item, termo_aditivo e apostilamento com o mesmo número.',
+    schemaFields: [
+      { field: 'contratos.updated_at', type: 'string', description: 'Timestamp mais recente entre os segmentos consultados.' },
+      { field: 'contratos.contratos[].tipo_registro', type: 'string', description: 'contrato, item, termo_aditivo ou apostilamento.' },
+      { field: 'contratos.contratos[].numero', type: 'string', description: 'Número do contrato na fonte.' },
+      { field: 'contratos.contratos[].objeto/situacao', type: 'string', description: 'Objeto e situação do contrato ou alteração.' },
+      { field: 'contratos.contratos[].valor_inicial/valor_final', type: 'string', description: 'Valores publicados no registro principal.' },
+      { field: 'contratos.contratos[].item_codigo/item_descricao', type: 'string', description: 'Dados do item contratado quando aplicável.' },
+    ],
+  },
+  renuncias_fiscais: {
+    name: 'Renúncias fiscais',
+    shortName: 'Renúncias fiscais',
+    frequency: 'Anual',
+    source: 'Portal da Transparência — Renúncias Fiscais',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/renuncias',
+    sourceDescription:
+      'A política do OpenCNPJ considera somente períodos de 2013 em diante; a fonte começa a disponibilizar esta família em 2015. Cada exercício é publicado como um segmento anual.',
+    schemaVersion: '1',
+    filter: 'datasets=renuncias_fiscais',
+    description:
+      'Renúncias, totais por beneficiário, empresas habilitadas e empresas imunes ou isentas vinculadas ao CNPJ. Exemplo: uma empresa pode ter um registro renuncia_fiscal com tributo e valor e outro empresa_habilitada com benefício e vigência.',
+    schemaFields: [
+      { field: 'renuncias_fiscais.updated_at', type: 'string', description: 'Timestamp mais recente entre os exercícios consultados.' },
+      { field: 'renuncias_fiscais.renuncias[].tipo_registro', type: 'string', description: 'renuncia_fiscal, empresa_habilitada, empresa_imune_ou_isenta ou total_por_beneficiario.' },
+      { field: 'renuncias_fiscais.renuncias[].ano_calendario', type: 'string', description: 'Exercício fiscal informado na fonte.' },
+      { field: 'renuncias_fiscais.renuncias[].beneficio_fiscal/tributo', type: 'string', description: 'Benefício e tributo relacionados.' },
+      { field: 'renuncias_fiscais.renuncias[].valor', type: 'string', description: 'Valor conforme formatação do arquivo oficial.' },
+    ],
+  },
+  notas_fiscais: {
+    name: 'Notas fiscais eletrônicas',
+    shortName: 'Notas fiscais',
+    frequency: 'Mensal',
+    source: 'Portal da Transparência — Notas Fiscais',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/notas-fiscais',
+    sourceDescription:
+      'A política do OpenCNPJ considera somente períodos de 2013 em diante; a fonte desta família começa em novembro de 2019. Anos encerrados são anuais e o ano corrente permanece mensal.',
+    schemaVersion: '1',
+    filter: 'datasets=notas_fiscais',
+    description:
+      'Notas em que o CNPJ é emitente ou destinatário, com itens e eventos. Exemplo: papel_cnpj=emitente indica uma nota emitida pela empresa; papel_cnpj=destinatario indica uma compra destinada a ela.',
+    schemaFields: [
+      { field: 'notas_fiscais.updated_at', type: 'string', description: 'Timestamp mais recente entre os segmentos consultados.' },
+      { field: 'notas_fiscais.notas_fiscais[].tipo_registro', type: 'string', description: 'nota_fiscal, item ou evento.' },
+      { field: 'notas_fiscais.notas_fiscais[].papel_cnpj', type: 'string', description: 'emitente ou destinatario.' },
+      { field: 'notas_fiscais.notas_fiscais[].chave_acesso', type: 'string', description: 'Chave que relaciona nota, itens e eventos.' },
+      { field: 'notas_fiscais.notas_fiscais[].valor', type: 'string', description: 'Valor total no registro principal da nota.' },
+      { field: 'notas_fiscais.notas_fiscais[].numero_produto/descricao', type: 'string', description: 'Dados do item quando tipo_registro é item.' },
+    ],
+  },
+  convenios: {
+    name: 'Convênios',
+    shortName: 'Convênios',
+    frequency: 'Diária',
+    source: 'Portal da Transparência — Convênios',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/convenios',
+    sourceDescription:
+      'Fotografia mais recente da base oficial de convênios e ordens bancárias, associada pelo CNPJ do convenente.',
+    schemaVersion: '1',
+    filter: 'datasets=convenios',
+    description:
+      'Convênios em que o CNPJ é convenente e as ordens bancárias relacionadas. Exemplo: um convênio V1 aparece como tipo_registro=convenio e cada liberação como ordem_bancaria.',
+    schemaFields: [
+      { field: 'convenios.updated_at', type: 'string', description: 'Timestamp da fotografia publicada.' },
+      { field: 'convenios.convenios[].tipo_registro', type: 'string', description: 'convenio ou ordem_bancaria.' },
+      { field: 'convenios.convenios[].numero/objeto/situacao', type: 'string', description: 'Identificação e dados gerais do convênio.' },
+      { field: 'convenios.convenios[].valor/valor_liberado', type: 'string', description: 'Valores do convênio.' },
+      { field: 'convenios.convenios[].numero_ordem_bancaria', type: 'string', description: 'Identificador da liberação relacionada.' },
+    ],
+  },
+  emendas_parlamentares: {
+    name: 'Emendas parlamentares por favorecido',
+    shortName: 'Emendas',
+    frequency: 'Diária',
+    source: 'Portal da Transparência — Emendas Parlamentares',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/emendas-parlamentares',
+    sourceDescription:
+      'Arquivo oficial por favorecido, cuja chave de favorecido contém o CNPJ associado a cada recebimento.',
+    schemaVersion: '1',
+    filter: 'datasets=emendas_parlamentares',
+    description:
+      'Recebimentos de emendas associados diretamente ao CNPJ favorecido. Exemplo: um repasse da emenda EM1 gera favorecimento com autoria, mês de referência e valor recebido.',
+    schemaFields: [
+      { field: 'emendas_parlamentares.updated_at', type: 'string', description: 'Timestamp da fotografia publicada.' },
+      { field: 'emendas_parlamentares.emendas[].tipo_registro', type: 'string', description: 'favorecimento.' },
+      { field: 'emendas_parlamentares.emendas[].codigo_emenda/ano_mes', type: 'string', description: 'Identificação da emenda e período do recebimento.' },
+      { field: 'emendas_parlamentares.emendas[].autor_nome/tipo_emenda', type: 'string', description: 'Autoria e classificação.' },
+      { field: 'emendas_parlamentares.emendas[].valor_recebido', type: 'string', description: 'Valor recebido pelo favorecido.' },
+    ],
+  },
+  emendas_documentos: {
+    name: 'Emendas parlamentares por documento',
+    shortName: 'Documentos de emendas',
+    frequency: 'Anual',
+    source: 'Portal da Transparência — Emendas por Documento',
+    sourceUrl: 'https://portaldatransparencia.gov.br/download-de-dados/emendas-parlamentares-documentos',
+    sourceDescription:
+      'A política do OpenCNPJ considera somente períodos de 2013 em diante; os arquivos oficiais desta família começam em 2014. Cada exercício é publicado como segmento anual.',
+    schemaVersion: '1',
+    filter: 'datasets=emendas_documentos',
+    description:
+      'Documentos de execução de emendas em que o CNPJ aparece como favorecido. Exemplo: DOC1 pode representar a fase Pagamento, com valor pago, órgão, unidade gestora, ação e localidade de aplicação.',
+    schemaFields: [
+      { field: 'emendas_documentos.updated_at', type: 'string', description: 'Timestamp mais recente entre os exercícios consultados.' },
+      { field: 'emendas_documentos.documentos[].codigo_documento/data_documento', type: 'string', description: 'Identificação e data do documento.' },
+      { field: 'emendas_documentos.documentos[].codigo_emenda/ano_emenda', type: 'string', description: 'Emenda relacionada.' },
+      { field: 'emendas_documentos.documentos[].fase_despesa', type: 'string', description: 'Fase da execução, como empenho ou pagamento.' },
+      { field: 'emendas_documentos.documentos[].valor_empenhado/valor_pago', type: 'string', description: 'Valores publicados no documento.' },
+      { field: 'emendas_documentos.documentos[].orgao/ug/acao', type: 'string', description: 'Classificação orçamentária e unidade responsável.' },
     ],
   },
 };

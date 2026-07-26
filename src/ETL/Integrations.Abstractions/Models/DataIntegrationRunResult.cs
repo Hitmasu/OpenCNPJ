@@ -5,7 +5,8 @@ public sealed record DataIntegrationRunResult(
     DateTimeOffset UpdatedAt,
     string? ParquetGlob,
     long RecordCount,
-    IReadOnlyDictionary<string, string> CurrentHashes)
+    IReadOnlyDictionary<string, string> CurrentHashes,
+    IReadOnlyList<DataIntegrationSegment>? Segments = null)
 {
     public static DataIntegrationRunResult Unchanged(DataIntegrationHashState previousState, DateTimeOffset now) =>
         new(
@@ -13,5 +14,6 @@ public sealed record DataIntegrationRunResult(
             previousState.UpdatedAt ?? now,
             previousState.ParquetGlob,
             previousState.Hashes.Count,
-            previousState.Hashes);
+            previousState.Hashes,
+            previousState.Segments);
 }

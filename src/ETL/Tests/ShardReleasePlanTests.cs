@@ -58,19 +58,20 @@ public sealed class ShardReleasePlanTests
     }
 
     [TestMethod]
-    public async Task BinaryIndexedShardWriter_ShouldSortIndexEntriesByCnpj()
+    public async Task BinaryIndexedShardWriter_ShouldResumeAndSortAlphanumericEntriesByCnpj()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"opencnpj-index-sort-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
-        var dataPath = Path.Combine(tempDir, "607.ndjson");
-        var indexPath = Path.Combine(tempDir, "607.index.bin");
+        var dataPath = Path.Combine(tempDir, "ABC.ndjson");
+        var indexPath = Path.Combine(tempDir, "ABC.index.bin");
 
         try
         {
             using (var writer = new BinaryIndexedShardWriter(dataPath, indexPath))
             {
-                await writer.AppendAsync("60700000000002", """{"cnpj":"60700000000002"}""");
-                await writer.AppendAsync("60700000000001", """{"cnpj":"60700000000001","nome":"Sócia"}""");
+                await writer.AppendAsync("ABC00000000002", """{"cnpj":"ABC00000000002"}""");
+                await writer.SuspendAsync();
+                await writer.AppendAsync("ABC00000000001", """{"cnpj":"ABC00000000001","nome":"Sócia"}""");
                 await writer.FlushAsync();
             }
 
@@ -79,14 +80,14 @@ public sealed class ShardReleasePlanTests
 
             var firstCnpj = Encoding.ASCII.GetString(indexBytes, 8, 14);
             var secondCnpj = Encoding.ASCII.GetString(indexBytes, 8 + 26, 14);
-            Assert.AreEqual("60700000000001", firstCnpj);
-            Assert.AreEqual("60700000000002", secondCnpj);
+            Assert.AreEqual("ABC00000000001", firstCnpj);
+            Assert.AreEqual("ABC00000000002", secondCnpj);
 
             var firstOffset = BinaryPrimitives.ReadUInt64LittleEndian(indexBytes.AsSpan(8 + 14, sizeof(ulong)));
             var firstLength = BinaryPrimitives.ReadUInt32LittleEndian(indexBytes.AsSpan(8 + 14 + sizeof(ulong), sizeof(uint)));
             var dataBytes = await File.ReadAllBytesAsync(dataPath);
             var firstPayload = Encoding.UTF8.GetString(dataBytes.AsSpan((int)firstOffset, (int)firstLength));
-            StringAssert.Contains(firstPayload, "60700000000001");
+            StringAssert.Contains(firstPayload, "ABC00000000001");
             StringAssert.Contains(firstPayload, "Sócia");
         }
         finally

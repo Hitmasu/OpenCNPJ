@@ -1,6 +1,6 @@
 import type { AnyApiReferenceConfiguration } from '@scalar/api-reference-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { datasetDetails } from '../data/datasets';
+import { datasetDetails, datasetOrder } from '../data/datasets';
 import type { DatasetKey } from '../types';
 import { InlineTryIt } from './InlineTryIt';
 
@@ -89,7 +89,7 @@ function getDatasetDefault(datasetKey?: DatasetKey) {
 function buildEndpointUrl(datasetKey?: DatasetKey, cnpj = DEFAULT_CNPJ) {
   const datasetDefault = getDatasetDefault(datasetKey);
 
-  return `https://api.opencnpj.org/${cnpj || DEFAULT_CNPJ}?dataset=${datasetDefault}`;
+  return `https://api.opencnpj.org/${cnpj || DEFAULT_CNPJ}?datasets=${datasetDefault}`;
 }
 
 function buildCodeSamples(datasetKey?: DatasetKey, cnpj?: string) {
@@ -176,7 +176,7 @@ function buildRailDocument(document: OpenApiDocument, datasetKey?: DatasetKey, c
 
     if (Array.isArray(cnpjOperation.parameters)) {
       const cnpjParam = cnpjOperation.parameters.find((param: OpenApiDocument) => param.name === 'cnpj');
-      const datasetParam = cnpjOperation.parameters.find((param: OpenApiDocument) => param.name === 'dataset');
+      const datasetParam = cnpjOperation.parameters.find((param: OpenApiDocument) => param.name === 'datasets');
       const datasetDefault = getDatasetDefault(datasetKey);
 
       if (isOpenApiDocument(cnpjParam)) {
@@ -195,7 +195,7 @@ function buildRailDocument(document: OpenApiDocument, datasetKey?: DatasetKey, c
         datasetParam.schema = {
           ...(isOpenApiDocument(datasetParam.schema) ? datasetParam.schema : {}),
           default: datasetDefault,
-          enum: ['receita', 'cno', 'rntrc'],
+          enum: [...datasetOrder],
         };
       }
     }

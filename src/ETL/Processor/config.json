@@ -44,6 +44,28 @@
     "PackageShowUrl": "https://dados.antt.gov.br/api/3/action/package_show?id=b4a055d1-97a2-46f1-9461-cb17fbc6b6b3",
     "RefreshHours": 24
   },
+  "PortalTransparenciaIntegration": {
+    "Enabled": true,
+    "CatalogBaseUrl": "https://portaldatransparencia.gov.br/download-de-dados",
+    "EnabledDatasets": [
+      "favorecidos_pj",
+      "ceis",
+      "cepim",
+      "cnep",
+      "acordos_leniencia",
+      "licitacoes",
+      "contratos",
+      "renuncias_fiscais",
+      "notas_fiscais",
+      "convenios",
+      "emendas_parlamentares",
+      "emendas_documentos"
+    ],
+    "DuckDbThreads": 1,
+    "DuckDbMemoryLimit": "512MB",
+    "DuckDbMaxTempDirectorySize": "20GB",
+    "ProcessingPartitions": 64
+  },
   "BigQuery": {
     "Enabled": false,
     "ProjectId": "",
@@ -51,6 +73,9 @@
     "TablePrefix": "",
     "Location": "",
     "BqExecutable": "bq",
-    "KeepStagingTables": false
+    "KeepStagingTables": false,
+    "CompactionThreads": 1,
+    "CompactionMemoryLimit": "4GB",
+    "CompactionMaxTempDirectorySize": "100GB"
   }
 }

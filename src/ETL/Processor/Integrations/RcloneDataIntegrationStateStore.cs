@@ -41,7 +41,8 @@ public sealed class RcloneDataIntegrationStateStore : IDataIntegrationStateStore
             state?.SourceVersion,
             state?.UpdatedAt,
             state?.ParquetGlob,
-            state?.SchemaVersion);
+            state?.SchemaVersion,
+            state?.Segments);
     }
 
     public async Task SaveAsync(
@@ -59,6 +60,7 @@ public sealed class RcloneDataIntegrationStateStore : IDataIntegrationStateStore
             state.UpdatedAt,
             state.ParquetGlob,
             state.SchemaVersion,
+            state.Segments,
             new Dictionary<string, string>(state.Hashes, StringComparer.Ordinal));
 
         await using (var stream = File.Create(localPath))
@@ -82,5 +84,6 @@ public sealed class RcloneDataIntegrationStateStore : IDataIntegrationStateStore
         DateTimeOffset? UpdatedAt,
         string? ParquetGlob,
         string? SchemaVersion,
+        IReadOnlyList<DataIntegrationSegment>? Segments,
         Dictionary<string, string> Hashes);
 }

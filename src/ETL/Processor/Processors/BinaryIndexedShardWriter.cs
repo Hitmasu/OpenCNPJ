@@ -8,29 +8,33 @@ internal sealed class BinaryIndexedShardWriter : IDisposable
     public const int CnpjLength = 14;
     public const int HeaderSize = 8;
     public const int EntrySize = CnpjLength + sizeof(ulong) + sizeof(uint);
+    private const int StreamBufferSize = 64 * 1024;
 
     private static ReadOnlySpan<byte> Magic => "OCI1"u8;
 
-    private readonly FileStream _dataStream;
-    private readonly StreamWriter _dataWriter;
-    private readonly FileStream _indexStream;
+    private readonly string _outputPath;
+    private readonly string _indexPath;
     private readonly UTF8Encoding _utf8NoBom = new(false);
     private readonly List<IndexEntry> _indexEntries = [];
+    private FileStream? _dataStream;
+    private StreamWriter? _dataWriter;
     private bool _indexDirty = true;
+    private bool _disposed;
     private int _recordCount;
     private long _offset;
 
     public BinaryIndexedShardWriter(string outputPath, string indexPath)
     {
-        _dataStream = new FileStream(
-            outputPath,
+        _outputPath = outputPath;
+        _indexPath = indexPath;
+        using (new FileStream(
+            _outputPath,
             FileMode.Create,
             FileAccess.Write,
-            FileShare.Read,
-            bufferSize: 1024 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        _dataWriter = new StreamWriter(_dataStream, _utf8NoBom, bufferSize: 1024 * 1024, leaveOpen: true);
-        _indexStream = new FileStream(indexPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            FileShare.Read))
+        {
+        }
+
         RewriteIndex();
     }
 
@@ -38,14 +42,18 @@ internal sealed class BinaryIndexedShardWriter : IDisposable
 
     public long DataSize => _offset;
 
+    internal bool IsOpen => _dataWriter is not null;
+
     public async Task AppendAsync(string cnpj, string jsonData)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (cnpj.Length != CnpjLength)
             throw new ArgumentOutOfRangeException(nameof(cnpj), $"CNPJ deve ter exatamente {CnpjLength} caracteres.");
 
         var byteLength = checked((uint)(_utf8NoBom.GetByteCount(jsonData) + 1));
+        EnsureDataWriter();
 
-        await _dataWriter.WriteAsync(jsonData);
+        await _dataWriter!.WriteAsync(jsonData);
         await _dataWriter.WriteAsync('\n');
         _indexEntries.Add(CreateIndexEntry(cnpj, checked((ulong)_offset), byteLength));
         _offset += byteLength;
@@ -55,9 +63,40 @@ internal sealed class BinaryIndexedShardWriter : IDisposable
 
     public async Task FlushAsync()
     {
-        await _dataWriter.FlushAsync();
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await SuspendAsync();
         RewriteIndex();
-        await _indexStream.FlushAsync();
+    }
+
+    internal async Task SuspendAsync()
+    {
+        if (_dataWriter is null)
+            return;
+
+        await _dataWriter.FlushAsync();
+        _dataWriter.Dispose();
+        _dataStream?.Dispose();
+        _dataWriter = null;
+        _dataStream = null;
+    }
+
+    private void EnsureDataWriter()
+    {
+        if (_dataWriter is not null)
+            return;
+
+        _dataStream = new FileStream(
+            _outputPath,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.Read,
+            StreamBufferSize,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        _dataWriter = new StreamWriter(
+            _dataStream,
+            _utf8NoBom,
+            StreamBufferSize,
+            leaveOpen: true);
     }
 
     private static IndexEntry CreateIndexEntry(string cnpj, ulong offset, uint length)
@@ -77,7 +116,7 @@ internal sealed class BinaryIndexedShardWriter : IDisposable
             length);
     }
 
-    private void WriteIndexEntry(IndexEntry entry)
+    private static void WriteIndexEntry(Stream indexStream, IndexEntry entry)
     {
         Span<byte> entryBuffer = stackalloc byte[EntrySize];
         BinaryPrimitives.WriteUInt64LittleEndian(entryBuffer[..8], entry.CnpjFirstBlock);
@@ -88,15 +127,15 @@ internal sealed class BinaryIndexedShardWriter : IDisposable
 
         BinaryPrimitives.WriteUInt64LittleEndian(entryBuffer.Slice(CnpjLength, sizeof(ulong)), entry.Offset);
         BinaryPrimitives.WriteUInt32LittleEndian(entryBuffer.Slice(CnpjLength + sizeof(ulong), sizeof(uint)), entry.Length);
-        _indexStream.Write(entryBuffer);
+        indexStream.Write(entryBuffer);
     }
 
-    private void WriteHeader()
+    private void WriteHeader(Stream indexStream)
     {
         var header = new byte[HeaderSize];
         Magic.CopyTo(header);
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4, sizeof(uint)), checked((uint)_recordCount));
-        _indexStream.Write(header, 0, header.Length);
+        indexStream.Write(header, 0, header.Length);
     }
 
     private void RewriteIndex()
@@ -104,13 +143,18 @@ internal sealed class BinaryIndexedShardWriter : IDisposable
         if (!_indexDirty)
             return;
 
-        _indexStream.Position = 0;
-        _indexStream.SetLength(0);
-        WriteHeader();
+        using var indexStream = new FileStream(
+            _indexPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.Read,
+            StreamBufferSize,
+            FileOptions.SequentialScan);
+        WriteHeader(indexStream);
 
         _indexEntries.Sort(CompareIndexEntries);
         foreach (var entry in _indexEntries)
-            WriteIndexEntry(entry);
+            WriteIndexEntry(indexStream, entry);
 
         _indexDirty = false;
     }
@@ -138,11 +182,20 @@ internal sealed class BinaryIndexedShardWriter : IDisposable
 
     public void Dispose()
     {
-        _dataWriter.Flush();
-        RewriteIndex();
-        _indexStream.Dispose();
-        _dataWriter.Dispose();
-        _dataStream.Dispose();
+        if (_disposed)
+            return;
+
+        try
+        {
+            _dataWriter?.Flush();
+            _dataWriter?.Dispose();
+            _dataStream?.Dispose();
+            RewriteIndex();
+        }
+        finally
+        {
+            _disposed = true;
+        }
     }
 
     private readonly record struct IndexEntry(ulong CnpjFirstBlock, ulong CnpjSecondBlock, ulong Offset, uint Length);

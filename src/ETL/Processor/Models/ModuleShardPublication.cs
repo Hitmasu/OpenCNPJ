@@ -8,8 +8,18 @@ internal sealed record ModuleShardPublication(
     DateTimeOffset UpdatedAt,
     long RecordCount,
     string StorageReleaseId,
-    ZipArtifactPublication Zip)
+    ZipArtifactPublication Zip,
+    string? RoutingReleaseId = null,
+    string? SegmentCollectionProperty = null,
+    IReadOnlyList<ModuleSegmentPublication>? Segments = null)
 {
+    public IReadOnlyList<ModuleSegmentPublication> EffectiveSegments =>
+        Segments ?? [];
+
+    public bool IsSegmented =>
+        !string.IsNullOrWhiteSpace(RoutingReleaseId)
+        && EffectiveSegments.Count > 0;
+
     public static ModuleShardPublication FromPublished(PublishedModuleShardSnapshot snapshot) =>
         new(
             snapshot.Key,
@@ -19,5 +29,10 @@ internal sealed record ModuleShardPublication(
             snapshot.UpdatedAt,
             snapshot.RecordCount,
             snapshot.StorageReleaseId,
-            snapshot.Zip.ToPublication());
+            snapshot.Zip.ToPublication(),
+            snapshot.RoutingReleaseId,
+            snapshot.SegmentCollectionProperty,
+            snapshot.EffectiveSegments
+                .Select(segment => segment.ToPublication())
+                .ToArray());
 }

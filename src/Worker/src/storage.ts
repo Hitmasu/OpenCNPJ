@@ -1,10 +1,35 @@
-import { getHotChunk, getHotIndex, getHotRuntimeInfo, rememberHotChunk, rememberHotIndex, rememberHotRuntimeInfo } from "./cache.ts";
-import { parseBinaryShardIndex, findBinaryIndexEntry } from "./binary-index.ts";
+import {
+  getHotChunk,
+  getHotIndex,
+  getHotRoutingIndex,
+  getHotRuntimeInfo,
+  rememberHotChunk,
+  rememberHotIndex,
+  rememberHotRoutingIndex,
+  rememberHotRuntimeInfo,
+} from "./cache.ts";
+import {
+  parseBinaryShardIndex,
+  findBinaryIndexEntries,
+  findBinaryIndexEntry,
+} from "./binary-index.ts";
 import { createStageError } from "./errors.ts";
 import { getEmbeddedRuntimeInfo, hasEmbeddedRuntimeInfo } from "./generated-runtime-info.ts";
 import { jsonError, jsonOk, jsonOkNoStore } from "./http.ts";
+import {
+  findSegmentRoutingReferences,
+  parseSegmentRoutingIndex,
+} from "./routing-index.ts";
 import { R2_PUBLIC_ROOT, SHARD_PREFIX_LENGTH } from "./constants.ts";
-import type { BinaryShardIndex, DatasetInfo, DatasetSelection, Env, RuntimeInfo } from "./types.ts";
+import type {
+  BinaryIndexEntry,
+  BinaryShardIndex,
+  DatasetInfo,
+  DatasetSelection,
+  Env,
+  RuntimeInfo,
+  SegmentRoutingIndex,
+} from "./types.ts";
 
 export async function loadInfo(env: Env): Promise<Response> {
   const embedded = getEmbeddedRuntimeInfo();
@@ -108,7 +133,7 @@ export function buildRecordCacheKey(
     ? resolveShardReleaseId(runtimeInfo, prefix) ?? "assets"
     : "none";
   const moduleVersions = selection.moduleKeys
-    .map(key => `${key}:${resolveModuleShardReleaseId(runtimeInfo?.datasets?.[key], prefix) ?? "none"}`)
+    .map(key => `${key}:${resolveModuleCacheVersion(runtimeInfo?.datasets?.[key], prefix)}`)
     .join(",");
 
   return `https://cache.opencnpj/cnpj/${cnpj}?datasets=${encodeURIComponent(selection.cacheKey)}&v=${encodeURIComponent(`${baseRelease}|${moduleVersions}`)}`;
@@ -368,6 +393,20 @@ function resolveModuleShardReleaseId(moduleInfo: DatasetInfo | undefined, _prefi
   return moduleInfo?.storage_release_id;
 }
 
+function resolveModuleCacheVersion(
+  moduleInfo: DatasetInfo | undefined,
+  prefix: string,
+): string {
+  if (isSegmentedModule(moduleInfo)) {
+    const segmentVersions = moduleInfo.segments
+      .map(segment => `${segment.id}:${segment.storage_release_id}`)
+      .join(".");
+    return `${moduleInfo.routing_release_id}|${segmentVersions}`;
+  }
+
+  return resolveModuleShardReleaseId(moduleInfo, prefix) ?? "none";
+}
+
 function getModuleDatasetKeys(runtimeInfo: RuntimeInfo | null): string[] {
   return Object.keys(runtimeInfo?.datasets ?? {})
     .filter(key => key !== "receita");
@@ -386,6 +425,17 @@ async function applyModuleShards(
   const results = await Promise.all(moduleKeys.map(async moduleKey => {
     const moduleInfo = runtimeInfo?.datasets?.[moduleKey];
     const propertyName = moduleInfo?.json_property_name || moduleKey;
+    if (isSegmentedModule(moduleInfo)) {
+      const payload = await loadSegmentedModuleRecord(
+        bucket,
+        moduleKey,
+        prefix,
+        cnpj,
+        moduleInfo,
+      );
+      return [propertyName, payload] as const;
+    }
+
     const releaseId = resolveModuleShardReleaseId(moduleInfo, prefix);
     if (!releaseId) {
       return [propertyName, null] as const;
@@ -398,6 +448,102 @@ async function applyModuleShards(
   for (const [propertyName, payload] of results) {
     record[propertyName] = payload;
   }
+}
+
+async function loadSegmentedModuleRecord(
+  bucket: R2Bucket,
+  moduleKey: string,
+  prefix: string,
+  cnpj: string,
+  moduleInfo: DatasetInfo & {
+    routing_release_id: string;
+    segments: NonNullable<DatasetInfo["segments"]>;
+  },
+): Promise<Record<string, unknown> | null> {
+  const routing = await loadModuleRoutingIndex(
+    bucket,
+    moduleKey,
+    prefix,
+    moduleInfo.routing_release_id,
+  );
+  if (!routing) {
+    return null;
+  }
+
+  const references = findSegmentRoutingReferences(routing, cnpj);
+  if (references.length === 0) {
+    return null;
+  }
+
+  const segmentsById = new Map(
+    moduleInfo.segments.map(segment => [segment.id, segment]),
+  );
+  const orderedReferences = [...references]
+    .sort((left, right) => left.segmentId.localeCompare(right.segmentId));
+  const payloadGroups = await Promise.all(orderedReferences.map(async reference => {
+    const segment = segmentsById.get(reference.segmentId);
+    if (!segment) {
+      throw new Error(
+        `routing references unknown segment ${moduleKey}/${reference.segmentId}`,
+      );
+    }
+
+    const dataPath = buildR2Key(buildSegmentModuleShardDataPath(
+      moduleKey,
+      reference.segmentId,
+      segment.storage_release_id,
+      prefix,
+    ));
+    const chunk = await loadCachedRangeTextFromR2(
+      bucket,
+      dataPath,
+      {
+        offset: reference.offset,
+        length: reference.length,
+      },
+    );
+    if (chunk == null) {
+      throw new Error(`missing routed segment ${dataPath}`);
+    }
+
+    return parseExactNdjsonRecords(chunk, cnpj, dataPath);
+  }));
+
+  return mergeSegmentPayloads(
+    cnpj,
+    payloadGroups.flat(),
+    moduleInfo.segment_collection_property,
+  );
+}
+
+async function loadModuleRoutingIndex(
+  bucket: R2Bucket,
+  moduleKey: string,
+  prefix: string,
+  routingReleaseId: string,
+): Promise<SegmentRoutingIndex | null> {
+  const key = buildR2Key(
+    buildModuleRoutingPath(moduleKey, prefix, routingReleaseId),
+  );
+  const cached = getHotRoutingIndex(key);
+  if (cached) {
+    return cached;
+  }
+
+  let object: R2ObjectBody | null;
+  try {
+    object = await bucket.get(key);
+  } catch (error) {
+    throw createStageError(`r2.get:${key}`, error);
+  }
+
+  if (!object) {
+    return null;
+  }
+
+  const index = parseSegmentRoutingIndex(await object.arrayBuffer(), key);
+  rememberHotRoutingIndex(key, index);
+  return index;
 }
 
 async function loadModuleRecordFromShard(
@@ -414,18 +560,43 @@ async function loadModuleRecordFromShard(
     return null;
   }
 
-  const entry = findBinaryIndexEntry(index, cnpj);
-  if (!entry) {
+  const entries = findBinaryIndexEntries(index, cnpj);
+  if (entries.length === 0) {
     return null;
   }
 
   const dataKey = buildR2Key(buildModuleShardDataPath(moduleKey, prefix, releaseId));
-  const chunk = await loadCachedRangeTextFromR2(bucket, dataKey, entry);
-  if (chunk == null) {
-    return null;
+  const payloadGroups = await Promise.all(
+    coalesceAdjacentRanges(entries).map(async range => {
+      const chunk = await loadCachedRangeTextFromR2(bucket, dataKey, range);
+      if (chunk == null) {
+        throw new Error(`missing routed module ${dataKey}`);
+      }
+
+      return parseExactNdjsonRecords(chunk, cnpj, dataKey);
+    }),
+  );
+
+  return mergeSegmentPayloads(cnpj, payloadGroups.flat());
+}
+
+function coalesceAdjacentRanges(
+  entries: BinaryIndexEntry[],
+): BinaryIndexEntry[] {
+  const ordered = [...entries].sort(
+    (left, right) => left.offset - right.offset,
+  );
+  const ranges: BinaryIndexEntry[] = [];
+  for (const entry of ordered) {
+    const current = ranges.at(-1);
+    if (current && current.offset + current.length === entry.offset) {
+      current.length += entry.length;
+    } else {
+      ranges.push({ ...entry });
+    }
   }
 
-  return parseExactNdjsonRecord(chunk, cnpj, dataKey);
+  return ranges;
 }
 
 function buildShardDataPath(prefix: string, releaseId?: string): string {
@@ -446,6 +617,111 @@ function buildModuleShardIndexPath(moduleKey: string, prefix: string, releaseId:
   return `shards/modules/${moduleKey}/${releaseId}/${prefix}.index.bin`;
 }
 
+function buildModuleRoutingPath(
+  moduleKey: string,
+  prefix: string,
+  routingReleaseId: string,
+): string {
+  return `shards/modules/${moduleKey}/routing/${routingReleaseId}/${prefix}.routing.bin`;
+}
+
+function buildSegmentModuleShardDataPath(
+  moduleKey: string,
+  segmentId: string,
+  releaseId: string,
+  prefix: string,
+): string {
+  return `shards/modules/${moduleKey}/segments/${segmentId}/${releaseId}/${prefix}.ndjson`;
+}
+
+function isSegmentedModule(
+  moduleInfo: DatasetInfo | undefined,
+): moduleInfo is DatasetInfo & {
+  routing_release_id: string;
+  segments: NonNullable<DatasetInfo["segments"]>;
+} {
+  return Boolean(
+    moduleInfo?.routing_release_id
+    && moduleInfo.segments
+    && moduleInfo.segments.length > 0,
+  );
+}
+
+function mergeSegmentPayloads(
+  cnpj: string,
+  payloads: Record<string, unknown>[],
+  collectionProperty?: string,
+): Record<string, unknown> | null {
+  if (payloads.length === 0) {
+    return null;
+  }
+
+  const merged: Record<string, unknown> = { cnpj };
+  for (const payload of payloads) {
+    mergeObject(merged, payload);
+  }
+
+  if (
+    collectionProperty
+    && !Array.isArray(merged[collectionProperty])
+  ) {
+    merged[collectionProperty] = [];
+  }
+
+  merged.cnpj = cnpj;
+  return merged;
+}
+
+function mergeObject(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (key === "cnpj") {
+      continue;
+    }
+
+    const current = target[key];
+    if (Array.isArray(value)) {
+      target[key] = appendUnique(
+        Array.isArray(current) ? current : [],
+        value,
+      );
+    } else if (isPlainObject(value)) {
+      const nested = isPlainObject(current) ? current : {};
+      mergeObject(nested, value);
+      target[key] = nested;
+    } else if (
+      key !== "updated_at"
+      || typeof current !== "string"
+      || typeof value !== "string"
+      || value.localeCompare(current) >= 0
+    ) {
+      target[key] = value;
+    }
+  }
+}
+
+function appendUnique(current: unknown[], additions: unknown[]): unknown[] {
+  const result = [...current];
+  const seen = new Set(current.map(value => JSON.stringify(value)));
+  for (const value of additions) {
+    const identity = JSON.stringify(value);
+    if (seen.has(identity)) {
+      continue;
+    }
+
+    seen.add(identity);
+    result.push(value);
+  }
+
+  return result;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
 function parseExactNdjsonRecord(chunk: string, cnpj: string, key: string): Record<string, unknown> | null {
   const line = chunk.endsWith("\n") ? chunk.slice(0, -1) : chunk;
   if (!line) {
@@ -460,4 +736,29 @@ function parseExactNdjsonRecord(chunk: string, cnpj: string, key: string): Recor
   }
 
   return parsed.cnpj === cnpj ? parsed : null;
+}
+
+function parseExactNdjsonRecords(
+  chunk: string,
+  cnpj: string,
+  key: string,
+): Record<string, unknown>[] {
+  const lines = chunk.split("\n").filter(line => line.length > 0);
+  return lines.map((line, index) => {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(line) as Record<string, unknown>;
+    } catch (error) {
+      throw createStageError(`shard-lines.parse:${key}:${index}`, error);
+    }
+
+    if (parsed.cnpj !== cnpj) {
+      throw createStageError(
+        `shard-lines.cnpj:${key}:${index}`,
+        new Error(`expected ${cnpj}`),
+      );
+    }
+
+    return parsed;
+  });
 }

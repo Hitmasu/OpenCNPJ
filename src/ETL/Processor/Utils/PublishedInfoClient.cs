@@ -61,8 +61,11 @@ internal sealed class PublishedInfoClient
 
                 var moduleElement = moduleProperty.Value;
                 var moduleStorageReleaseId = TryGetString(moduleElement, "storage_release_id");
+                var routingReleaseId = TryGetString(moduleElement, "routing_release_id");
+                var segments = ParseSegments(moduleElement);
 
-                if (string.IsNullOrWhiteSpace(moduleStorageReleaseId))
+                if (string.IsNullOrWhiteSpace(moduleStorageReleaseId)
+                    && string.IsNullOrWhiteSpace(routingReleaseId))
                 {
                     continue;
                 }
@@ -74,8 +77,11 @@ internal sealed class PublishedInfoClient
                     TryGetString(moduleElement, "source_version"),
                     TryGetDateTimeOffset(moduleElement, "updated_at") ?? DateTimeOffset.MinValue,
                     TryGetLong(moduleElement, "record_count") ?? 0,
-                    moduleStorageReleaseId,
-                    TryGetZipSnapshot(moduleElement));
+                    moduleStorageReleaseId ?? routingReleaseId!,
+                    TryGetZipSnapshot(moduleElement),
+                    routingReleaseId,
+                    TryGetString(moduleElement, "segment_collection_property"),
+                    segments);
             }
         }
 
@@ -164,6 +170,44 @@ internal sealed class PublishedInfoClient
             size,
             url,
             md5Checksum);
+    }
+
+    private static IReadOnlyList<PublishedModuleSegmentSnapshot> ParseSegments(
+        JsonElement moduleElement)
+    {
+        if (!moduleElement.TryGetProperty("segments", out var segmentsElement)
+            || segmentsElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var segments = new List<PublishedModuleSegmentSnapshot>();
+        foreach (var segmentElement in segmentsElement.EnumerateArray())
+        {
+            if (segmentElement.ValueKind != JsonValueKind.Object)
+                continue;
+
+            var id = TryGetString(segmentElement, "id");
+            var storageReleaseId = TryGetString(
+                segmentElement,
+                "storage_release_id");
+            if (string.IsNullOrWhiteSpace(id)
+                || string.IsNullOrWhiteSpace(storageReleaseId))
+            {
+                continue;
+            }
+
+            segments.Add(new PublishedModuleSegmentSnapshot(
+                id,
+                TryGetString(segmentElement, "source_version"),
+                TryGetDateTimeOffset(segmentElement, "updated_at")
+                    ?? DateTimeOffset.MinValue,
+                TryGetLong(segmentElement, "record_count") ?? 0,
+                storageReleaseId,
+                TryGetZipSnapshot(segmentElement)));
+        }
+
+        return segments;
     }
 
     internal interface IPublishedInfoReader

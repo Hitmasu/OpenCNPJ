@@ -52,13 +52,14 @@
             }
           },
           {
-            "name": "dataset",
+            "name": "datasets",
             "in": "query",
             "required": false,
-            "description": "Dataset único desejado. Aceita receita, cno ou rntrc. Se omitido, o retorno padrão é Receita Federal.",
+            "description": "Um ou mais datasets separados por vírgula. Aceita receita, cno, rntrc, favorecidos_pj, ceis, cepim, cnep, acordos_leniencia, licitacoes, contratos, renuncias_fiscais, notas_fiscais, convenios, emendas_parlamentares e emendas_documentos. Se omitido, o retorno padrão é Receita Federal. dataset também é aceito como alias.",
             "schema": {
               "type": "string",
-              "enum": ["receita", "cno", "rntrc"],
+              "pattern": "^(receita|cno|rntrc|favorecidos_pj|ceis|cepim|cnep|acordos_leniencia|licitacoes|contratos|renuncias_fiscais|notas_fiscais|convenios|emendas_parlamentares|emendas_documentos)(,(receita|cno|rntrc|favorecidos_pj|ceis|cepim|cnep|acordos_leniencia|licitacoes|contratos|renuncias_fiscais|notas_fiscais|convenios|emendas_parlamentares|emendas_documentos))*$",
+              "examples": ["receita", "ceis,cnep", "licitacoes"],
               "default": "receita"
             }
           }
@@ -67,22 +68,22 @@
           {
             "lang": "Shell",
             "label": "cURL",
-            "source": "curl -s 'https://api.opencnpj.org/12ABC34501DE35?dataset=receita'"
+            "source": "curl -s 'https://api.opencnpj.org/12ABC34501DE35?datasets=receita'"
           },
           {
             "lang": "JavaScript",
             "label": "fetch",
-            "source": "const response = await fetch('https://api.opencnpj.org/12ABC34501DE35?dataset=receita', {\n  headers: { Accept: 'application/json' },\n});\n\nconst data = await response.json();\nconsole.log(data);"
+            "source": "const response = await fetch('https://api.opencnpj.org/12ABC34501DE35?datasets=receita', {\n  headers: { Accept: 'application/json' },\n});\n\nconst data = await response.json();\nconsole.log(data);"
           },
           {
             "lang": "Python",
             "label": "requests",
-            "source": "import requests\n\nresponse = requests.get('https://api.opencnpj.org/12ABC34501DE35?dataset=receita', headers={'Accept': 'application/json'})\nresponse.raise_for_status()\nprint(response.json())"
+            "source": "import requests\n\nresponse = requests.get('https://api.opencnpj.org/12ABC34501DE35?datasets=receita', headers={'Accept': 'application/json'})\nresponse.raise_for_status()\nprint(response.json())"
           },
           {
             "lang": "C#",
             "label": "HttpClient",
-            "source": "using var http = new HttpClient();\nusing var request = new HttpRequestMessage(HttpMethod.Get, \"https://api.opencnpj.org/12ABC34501DE35?dataset=receita\");\nrequest.Headers.Accept.ParseAdd(\"application/json\");\n\nusing var response = await http.SendAsync(request);\nresponse.EnsureSuccessStatusCode();\n\nvar json = await response.Content.ReadAsStringAsync();\nConsole.WriteLine(json);"
+            "source": "using var http = new HttpClient();\nusing var request = new HttpRequestMessage(HttpMethod.Get, \"https://api.opencnpj.org/12ABC34501DE35?datasets=receita\");\nrequest.Headers.Accept.ParseAdd(\"application/json\");\n\nusing var response = await http.SendAsync(request);\nresponse.EnsureSuccessStatusCode();\n\nvar json = await response.Content.ReadAsStringAsync();\nConsole.WriteLine(json);"
           }
         ],
         "responses": {
@@ -126,10 +127,10 @@
                       "error": "invalid cnpj"
                     }
                   },
-                  "multipleDatasets": {
-                    "summary": "Mais de um dataset",
+                  "invalidDataset": {
+                    "summary": "Dataset desconhecido",
                     "value": {
-                      "error": "only one dataset can be requested"
+                      "error": "invalid dataset: desconhecido"
                     }
                   }
                 }
@@ -288,7 +289,159 @@
                 "type": "null"
               }
             ]
+          },
+          "favorecidos_pj": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ceis": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cepim": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cnep": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acordos_leniencia": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "licitacoes": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PortalRecordCollection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contratos": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PortalRecordCollection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "renuncias_fiscais": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PortalRecordCollection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notas_fiscais": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PortalRecordCollection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "convenios": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PortalRecordCollection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "emendas_parlamentares": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PortalRecordCollection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "emendas_documentos": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PortalRecordCollection"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
+        }
+      },
+      "PortalRecordCollection": {
+        "type": "object",
+        "description": "Coleção de registros normalizados do Portal da Transparência. O nome da propriedade de coleção depende do dataset.",
+        "required": ["updated_at"],
+        "properties": {
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "string"
+            }
+          ]
         }
       },
       "CnoPayload": {

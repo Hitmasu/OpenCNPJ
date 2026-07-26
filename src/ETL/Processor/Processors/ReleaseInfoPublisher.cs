@@ -48,7 +48,9 @@ internal sealed class ReleaseInfoPublisher
             datasets = BuildDatasetsInfo(publication),
             shard_index_distribution = "r2",
             shard_format = "ndjson+binary-index",
-            zip_layout = "per-dataset-shards-v1",
+            zip_layout = publication.ModuleShards.Values.Any(module => module.IsSegmented)
+                ? "per-dataset-segments-v2"
+                : "per-dataset-shards-v1",
             cnpj_type = "string"
         };
 
@@ -88,7 +90,26 @@ internal sealed class ReleaseInfoPublisher
                 zip_available = module.Zip.Available,
                 zip_size = module.Zip.Size,
                 zip_url = module.Zip.Url,
-                zip_md5checksum = module.Zip.Md5Checksum
+                zip_md5checksum = module.Zip.Md5Checksum,
+                routing_release_id = module.RoutingReleaseId,
+                segment_collection_property = module.SegmentCollectionProperty,
+                segments = module.IsSegmented
+                    ? module.EffectiveSegments
+                        .OrderBy(segment => segment.Id, StringComparer.Ordinal)
+                        .Select(segment => new
+                        {
+                            id = segment.Id,
+                            source_version = segment.SourceVersion,
+                            updated_at = segment.UpdatedAt.ToString("o"),
+                            record_count = segment.RecordCount,
+                            storage_release_id = segment.StorageReleaseId,
+                            zip_available = segment.Zip.Available,
+                            zip_size = segment.Zip.Size,
+                            zip_url = segment.Zip.Url,
+                            zip_md5checksum = segment.Zip.Md5Checksum
+                        })
+                        .ToArray()
+                    : null
             };
         }
 

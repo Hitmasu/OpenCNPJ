@@ -2,6 +2,7 @@ using CNPJExporter.Configuration;
 using CnoIntegrationOptions = CNPJExporter.Modules.Cno.Configuration.IntegrationOptions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using RntrcIntegrationOptions = CNPJExporter.Modules.Rntrc.Configuration.IntegrationOptions;
+using PortalTransparenciaIntegrationOptions = CNPJExporter.Modules.PortalTransparencia.Configuration.IntegrationOptions;
 
 namespace ETL.Tests;
 
@@ -13,8 +14,19 @@ public sealed class AppConfigTests
     {
         Assert.AreEqual(string.Empty, new AppConfig.CnoIntegrationSettings().PublicShareRoot);
         Assert.AreEqual(string.Empty, new AppConfig.RntrcIntegrationSettings().PackageShowUrl);
+        Assert.AreEqual(string.Empty, new AppConfig.PortalTransparenciaIntegrationSettings().CatalogBaseUrl);
         Assert.AreEqual(string.Empty, new CnoIntegrationOptions().PublicShareRoot);
         Assert.AreEqual(string.Empty, new RntrcIntegrationOptions().PackageShowUrl);
+        Assert.AreEqual(string.Empty, new PortalTransparenciaIntegrationOptions().CatalogBaseUrl);
+    }
+
+    [TestMethod]
+    public void PortalTransparencia_ShouldUseBoundedDuckDbLimits()
+    {
+        var settings = new AppConfig.PortalTransparenciaIntegrationSettings();
+
+        Assert.AreEqual("512MB", settings.DuckDbMemoryLimit);
+        Assert.AreEqual("20GB", settings.DuckDbMaxTempDirectorySize);
     }
 
     [TestMethod]
