@@ -1066,3 +1066,117 @@ test("fetch reuses hot chunk cache when response cache is cold but range is alre
     { key: "files/shards/releases/release-123/000.index.bin", range: undefined },
   ]);
 });
+
+
+// ---------------------------------------------------------------- /batch
+//
+// Quem processa uma pasta de documentos consulta dezenas de CNPJs de uma vez.
+// O layout do bucket aqui e o mesmo dos testes de consulta unitaria: shard por
+// prefixo de tres digitos, com .ndjson e .index.bin sob a release corrente.
+
+function buildBatchFixture(cnpjs: string[]) {
+  let ndjson = "";
+  const entries: Array<{ cnpj: string; offset: number; length: number }> = [];
+  const payloads: Array<{ cnpj: string; razao_social: string }> = [];
+
+  for (const cnpj of cnpjs) {
+    const payload = { cnpj, razao_social: `EMPRESA ${cnpj}` };
+    const line = `${JSON.stringify(payload)}\n`;
+    entries.push({ cnpj, offset: ndjson.length, length: line.length });
+    payloads.push(payload);
+    ndjson += line;
+  }
+
+  return { ndjson, payloads, index: buildBinaryIndex(entries) };
+}
+
+async function callBatch(query: string, fixture: ReturnType<typeof buildBatchFixture>) {
+  const bucket = new FakeBucket({
+    "files/info.json": JSON.stringify({ storage_release_id: "base-release" }),
+    "files/shards/releases/base-release/000.index.bin": fixture.index,
+    "files/shards/releases/base-release/000.ndjson": fixture.ndjson,
+  });
+
+  const response = await worker.fetch(
+    new Request(`https://worker.invalid/batch?${query}`),
+    {
+      CNPJ_BUCKET: bucket as unknown as R2Bucket,
+      ASSETS: new FakeAssetsFetcher({}) as unknown as Fetcher,
+    } satisfies Env,
+    createExecutionContext(),
+  );
+
+  return { response, bucket };
+}
+
+test("batch returns every requested record in one call", async () => {
+  const cnpjs = ["00000000000000", "00000000000191"];
+  const fixture = buildBatchFixture(cnpjs);
+  const { response, bucket } = await callBatch(`cnpjs=${cnpjs.join(",")}`, fixture);
+
+  assert.equal(response.status, 200);
+  const body = await response.json() as {
+    solicitados: number;
+    encontrados: Array<{ cnpj: string }>;
+    nao_encontrados: string[];
+  };
+  assert.equal(body.solicitados, 2);
+  assert.deepEqual(body.encontrados.map((r) => r.cnpj), cnpjs);
+  assert.deepEqual(body.nao_encontrados, []);
+
+  // O ponto do endpoint: os dois CNPJs caem no mesmo shard, e o indice do
+  // shard e lido UMA vez, nao uma por CNPJ.
+  const leiturasDeIndice = bucket.gets.filter(
+    (g) => g.key.endsWith(".index.bin")).length;
+  assert.equal(leiturasDeIndice, 1);
+});
+
+test("batch reports missing records without failing the whole call", async () => {
+  const presente = "00000000000000";
+  const fixture = buildBatchFixture([presente]);
+  const { response } = await callBatch(`cnpjs=${presente},00000000000191`, fixture);
+
+  assert.equal(response.status, 200);
+  const body = await response.json() as {
+    encontrados: Array<{ cnpj: string }>;
+    nao_encontrados: string[];
+  };
+  assert.deepEqual(body.encontrados.map((r) => r.cnpj), [presente]);
+  assert.deepEqual(body.nao_encontrados, ["00000000000191"]);
+});
+
+test("batch accepts masks, dedupes and separates invalid entries", async () => {
+  const cnpj = "00000000000000";
+  const fixture = buildBatchFixture([cnpj]);
+  const { response } = await callBatch(
+    `cnpjs=${encodeURIComponent("00.000.000/0000-00")},${cnpj},nao-e-cnpj`,
+    fixture,
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json() as {
+    solicitados: number;
+    encontrados: Array<{ cnpj: string }>;
+    invalidos: string[];
+  };
+  // Tres pedidos, mas o mascarado e o cru sao o MESMO CNPJ: um registro so.
+  assert.equal(body.solicitados, 3);
+  assert.deepEqual(body.encontrados.map((r) => r.cnpj), [cnpj]);
+  assert.deepEqual(body.invalidos, ["nao-e-cnpj"]);
+});
+
+test("batch rejects an empty list and anything above the cap", async () => {
+  const fixture = buildBatchFixture([]);
+
+  const empty = await callBatch("cnpjs=", fixture);
+  assert.equal(empty.response.status, 400);
+  assert.deepEqual(await empty.response.json(), { error: "missing cnpjs" });
+
+  const tooMany = Array.from(
+    { length: 101 },
+    (_, i) => String(i).padStart(14, "0"),
+  ).join(",");
+  const over = await callBatch(`cnpjs=${tooMany}`, fixture);
+  assert.equal(over.response.status, 400);
+  assert.deepEqual(await over.response.json(), { error: "too many cnpjs (max 100)" });
+});

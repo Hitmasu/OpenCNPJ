@@ -28,3 +28,9 @@ export const ROUTING_INDEX_HEADER_SIZE = 8;
 export const R2_PUBLIC_ROOT = "files";
 export const CNPJ_MASK_CHARACTERS = /[./-]/g;
 export const ALPHANUMERIC_CNPJ_PATTERN = /^[A-Z0-9]{12}\d{2}$/;
+
+// Consulta em lote: teto de CNPJs por requisicao. O limite existe para o lote
+// caber no tempo de CPU do Worker e para nao virar vetor de varredura do
+// dataset inteiro; 100 cobre o caso real de quem processa uma pasta de
+// documentos de uma vez, que e o motivo do endpoint existir.
+export const BATCH_MAX_CNPJS = 100;
