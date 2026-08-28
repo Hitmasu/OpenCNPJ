@@ -9,24 +9,157 @@ Projeto aberto para baixar, processar e publicar dados públicos das empresas do
 - `src/ETL/OpenCNPJ.sln`: solution do ETL.
 - `src/Page`: página/SPA estática para consulta dos dados publicados.
 - `src/Worker`: Worker Cloudflare que lê shards publicados no R2.
-- `src/script`: scripts operacionais, incluindo o deploy versionado do Worker.
+- `src/scripts`: scripts operacionais, incluindo o deploy versionado do Worker.
 
 ## Requisitos
 
 - `.NET SDK 10.0+`
-- `rclone` instalado e autenticado no seu storage (ex.: Backblaze, R2, S3, Azure Storage, ...).
+- `rclone` instalado e autenticado no seu storage (ex.: Backblaze, R2, S3, Azure Storage, ...). Por padrão o comando é `rclone`, mas `Rclone.Executable` pode apontar para um caminho absoluto.
 - `bq` instalado e autenticado somente quando `BigQuery.Enabled=true`.
 - Espaço em disco e boa conexão (a primeira execução pode levar tempo -- dias até).
 
 ## Configuração
 
-- Ajuste `src/ETL/Processor/config.json` se desejar mudar pastas locais, destino do storage, memória, paralelismo...
-- No `config.json`, aponte para o Storage que deseja passando a configuração do rclone.
-- O downloader da Receita agora usa WebDAV no share público do SERPRO+/Nextcloud.
-- A integração do Portal da Transparência habilita 12 módulos independentes. Os módulos históricos consideram somente períodos de 2013 em diante; quando a fonte começa depois desse corte, a publicação começa no primeiro período realmente disponível.
-- `PortalTransparenciaIntegration.ProcessingPartitions` controla em quantas partições de CNPJ os CSVs grandes são projetados. O padrão é 64, com `DuckDbMemoryLimit=512MB` e spill temporário limitado; a exportação dos shards também opera em streaming sob esse limite. Os datasets particionados ainda subdividem os registros de cada CNPJ em 32 grupos limitados antes da agregação, evitando um único JSON intermediário gigante. Anos formados por arquivos mensais são projetados um mês por vez.
-- A publicação no BigQuery fica desligada por padrão. Com `BigQuery.Enabled=false` e sem override, o pipeline apenas emite um aviso e segue sem exigir `bq` ou credenciais Google.
-- Para habilitar BigQuery, configure `BigQuery.Enabled=true` ou `OPENCNPJ_BIGQUERY_ENABLED=true`, além de `Dataset`, `TablePrefix` opcional, `Location` opcional e `BqExecutable` se o binário não for `bq`. O projeto pode vir de `BigQuery.ProjectId` no `config.json` ou da env `OPENCNPJ_BIGQUERY_PROJECT_ID`; as envs têm prioridade. Em container, `OPENCNPJ_GOOGLE_CREDENTIALS_BASE64` pode receber a credencial Google codificada em base64 como secret do ambiente.
+O arquivo principal de configuração do ETL é `src/ETL/Processor/config.json`. Os valores abaixo refletem o arquivo versionado atual; caminhos relativos são resolvidos a partir do diretório em que o ETL roda, normalmente `src/ETL/Processor`.
+
+### Paths
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `DataDir` | string | `./extracted_data` | Diretório dos CSVs extraídos e dos insumos das integrações. Também guarda o estado local das integrações em `integrations/_state`. |
+| `ParquetDir` | string | `./parquet_data` | Diretório dos Parquets gerados pelo ETL e pelas integrações. É preservado pelo cleanup para permitir recomposição incremental. |
+| `OutputDir` | string | `./cnpj_shards` | Diretório dos shards, índices, ZIPs e metadados de release antes da publicação. |
+| `DownloadDir` | string | `./downloads` | Diretório dos ZIPs baixados da Receita Federal. |
+
+### Rclone
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `Executable` | string | `rclone` | Nome ou caminho do executável do rclone. Se ausente, vazio ou só com espaços, o ETL e os scripts usam `rclone`. |
+| `RemoteBase` | string | `Opencnpj:opencnpj/files` | Remote e diretório base de publicação. Pode ser sobrescrito por `RCLONE_REMOTE`. |
+| `Transfers` | int | `4` | Número de transferências paralelas passadas para `rclone copy`. O ETL usa no mínimo `1`. |
+| `MaxConcurrentUploads` | int | `1` | Limite de uploads simultâneos coordenados pelo ETL. |
+| `BufferSize` | string | `16M` | Valor de `--buffer-size` usado no rclone. Se ausente ou vazio, o ETL usa `16M`. |
+| `UploadVerificationRetries` | int | `3` | Número de tentativas de upload com verificação de contagem/hash remoto. O ETL usa no mínimo `1`. |
+| `UploadVerificationDelaySeconds` | int | `15` | Espera, em segundos, entre tentativas de verificação/upload. O ETL usa no mínimo `1`. |
+
+`Rclone.Executable` escolhe o binário do rclone. `Rclone.RemoteBase` escolhe o remote e o destino dentro do storage. São configurações diferentes.
+
+Quando o rclone está no `PATH`, mantenha:
+
+```json
+"Executable": "rclone"
+```
+
+Quando ele está fora do `PATH`, configure um caminho absoluto:
+
+```json
+"Executable": "/opt/rclone/rclone"
+```
+
+```json
+"Executable": "C:\\Tools\\rclone\\rclone.exe"
+```
+
+Com um caminho absoluto, o fluxo que usa esse `config.json` não precisa descobrir o executável pelo `PATH`. A imagem Docker continua instalando `/usr/local/bin/rclone` e expondo `rclone` no `PATH`, então a configuração padrão segue funcionando em container.
+
+### DuckDb
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `UseInMemory` | bool | `false` | Usa DuckDB em memória (`true`) ou arquivo local `cnpj.duckdb` (`false`). |
+| `ThreadsPragma` | int | `1` | Valor aplicado em `PRAGMA threads`; o ETL usa no mínimo `1`. |
+| `MemoryLimit` | string | `4GB` | Limite de memória do DuckDB para o processamento principal. |
+| `EngineThreads` | int | `1` | Valor aplicado em `SET threads`; o ETL usa no mínimo `1`. |
+| `PreserveInsertionOrder` | bool | `false` | Controla `preserve_insertion_order` no DuckDB. `false` reduz pressão de memória. |
+| `PartitionedWriteMaxOpenFiles` | int | `16` | Limite de arquivos abertos em escrita particionada; o ETL usa no mínimo `1`. |
+
+### Shards
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `PrefixLength` | int | `3` | Quantidade de caracteres do CNPJ usada como prefixo de shard e roteamento. |
+| `RemoteDir` | string | `shards` | Subdiretório local/remoto onde os shards são organizados. |
+| `MaxParallelProcessing` | int | `1` | Orçamento de paralelismo para geração de shards. O ETL usa no mínimo `1`. |
+| `QueryBatchSize` | int | `1` | Quantidade de prefixos processados por lote de consulta. O ETL usa no mínimo `1`; se a propriedade faltar, o inicializador do código é `4`. |
+| `QueryRangeFanOut` | int | `5` | Fator de subdivisão de faixas quando uma consulta de shard estoura memória. O ETL usa no mínimo `2`. |
+| `QsaMaterializationRangeFanOut` | int | `2` | Fator de subdivisão usado na materialização de QSA durante conversão para Parquet. |
+
+### Downloader
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `ParallelDownloads` | int | `2` | Downloads simultâneos dos ZIPs da Receita. O downloader usa no mínimo `1`. |
+| `PublicShareRoot` | string | URL WebDAV da Receita | Raiz pública WebDAV do SERPRO+/Nextcloud usada para listar meses e baixar ZIPs da Receita. |
+
+### CnoIntegration
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `Enabled` | bool | `true` | Habilita a integração do Cadastro Nacional de Obras. |
+| `PublicShareRoot` | string | URL WebDAV do CNO | Pasta pública onde o ZIP do CNO é localizado. |
+| `ZipFileName` | string | `cno.zip` | Nome exato do ZIP esperado na pasta pública. |
+| `RefreshHours` | int | `24` | Intervalo lógico de atualização usado pela integração para versionar/reutilizar fonte. |
+
+### RntrcIntegration
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `Enabled` | bool | `true` | Habilita a integração do RNTRC. |
+| `PackageShowUrl` | string | URL CKAN da ANTT | Endpoint `package_show` usado para descobrir o CSV mais recente. |
+| `RefreshHours` | int | `24` | Intervalo lógico de atualização usado pela integração para versionar/reutilizar fonte. |
+
+### PortalTransparenciaIntegration
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `Enabled` | bool | `true` | Habilita as integrações do Portal da Transparência. |
+| `CatalogBaseUrl` | string | `https://portaldatransparencia.gov.br/download-de-dados` | URL base dos catálogos de download. Deve ser HTTP(S) absoluta. |
+| `EnabledDatasets` | string[] | 12 datasets | Lista de datasets habilitados. Vazio ou ausente habilita todos os datasets conhecidos. |
+| `DuckDbThreads` | int | `1` | Threads usadas no processamento DuckDB específico do Portal. |
+| `DuckDbMemoryLimit` | string | `512MB` | Limite de memória do DuckDB para módulos do Portal. |
+| `DuckDbMaxTempDirectorySize` | string | `20GB` | Limite de spill temporário do DuckDB para módulos do Portal. |
+| `ProcessingPartitions` | int | `64` | Número de partições de CNPJ usadas para projetar CSVs grandes. |
+
+Datasets aceitos em `EnabledDatasets`: `favorecidos_pj`, `ceis`, `cepim`, `cnep`, `acordos_leniencia`, `licitacoes`, `contratos`, `renuncias_fiscais`, `notas_fiscais`, `convenios`, `emendas_parlamentares` e `emendas_documentos`. Também são aceitos os slugs dos catálogos correspondentes.
+
+A integração do Portal habilita 12 módulos independentes. Os módulos históricos consideram somente períodos de 2013 em diante; quando a fonte começa depois desse corte, a publicação começa no primeiro período realmente disponível. Anos formados por arquivos mensais são projetados um mês por vez, e anos encerrados são consolidados em segmentos anuais.
+
+### BigQuery
+
+| Campo | Tipo | Padrão no `config.json` | Descrição |
+|---|---|---|---|
+| `Enabled` | bool | `false` | Habilita publicação no BigQuery. Com `false`, o pipeline emite aviso e segue sem exigir `bq` ou credenciais Google. Pode ser sobrescrito por `OPENCNPJ_BIGQUERY_ENABLED`. |
+| `ProjectId` | string | vazio | Projeto BigQuery. Obrigatório quando BigQuery está habilitado; pode ser sobrescrito por `OPENCNPJ_BIGQUERY_PROJECT_ID`. |
+| `Dataset` | string | `public` | Dataset BigQuery de destino. Deve ser um identificador ASCII simples e existir antes da publicação. |
+| `TablePrefix` | string | vazio | Prefixo opcional para tabelas finais/staging. Se informado, deve manter nomes ASCII simples. |
+| `Location` | string | vazio | Localização opcional passada como `--location` nos comandos `bq`. |
+| `BqExecutable` | string | `bq` | Nome do comando `bq`. Se ausente ou vazio, o ETL usa `bq`. |
+| `KeepStagingTables` | bool | `false` | Mantém tabelas staging após a cópia para a tabela final. Útil para depuração. |
+| `CompactionThreads` | int | `1` | Threads usadas na compactação de Parquets de integrações genéricas para BigQuery. Deve ser maior que zero. |
+| `CompactionMemoryLimit` | string | `4GB` | Limite de memória do DuckDB na compactação BigQuery. Obrigatório quando a compactação roda. |
+| `CompactionMaxTempDirectorySize` | string | `100GB` | Limite de diretório temporário do DuckDB na compactação BigQuery. Obrigatório quando a compactação roda. |
+
+Quando `BigQuery.Enabled=true`, o pipeline carrega 1 tabela por módulo: `receita`, `cno`, `rntrc` e futuras integrações que publiquem um Parquet canônico. O projeto é passado explicitamente em todos os comandos BigQuery, então o fluxo não depende do projeto default configurado no `gcloud`.
+
+### Variáveis de ambiente
+
+| Variável | Onde é usada | Precedência e efeito |
+|---|---|---|
+| `RCLONE_REMOTE` | ETL, deploy e entrypoint Docker | Quando definida, sobrescreve `Rclone.RemoteBase`. |
+| `RCLONE_CONFIG_BASE64` | entrypoint Docker | Tem precedência sobre `RCLONE_CONFIG`; é decodificada para um arquivo temporário e exportada como `RCLONE_CONFIG`. |
+| `RCLONE_CONFIG` | entrypoint Docker e rclone | Caminho de arquivo de configuração do rclone. No entrypoint, é obrigatório quando `RCLONE_CONFIG_BASE64` não foi definido. |
+| `OPENCNPJ_BIGQUERY_ENABLED` | ETL, deploy e entrypoint Docker | Sobrescreve `BigQuery.Enabled`. Aceita apenas `true` ou `false`. |
+| `OPENCNPJ_BIGQUERY_PROJECT_ID` | ETL, deploy e entrypoint Docker | Sobrescreve `BigQuery.ProjectId`; espaços nas pontas são removidos pelo ETL. |
+| `OPENCNPJ_GOOGLE_CREDENTIALS_BASE64` | entrypoint Docker | Quando BigQuery está habilitado, pode conter a credencial Google em base64. O entrypoint decodifica, ativa `gcloud auth activate-service-account` e remove o arquivo temporário. |
+| `OPENCNPJ_RELEASE_ID` | deploy | Define o release id usado pelo deploy, equivalente a passar `--release-id`. |
+| `OPENCNPJ_BASE_URL` | deploy | URL pública usada na validação pós-deploy quando `--base-url` não é informado. |
+| `OPENCNPJ_VALIDATE_CNPJ` | deploy | CNPJ usado nas validações pós-deploy. |
+| `OPENCNPJ_FETCH_JSON_RETRIES` / `OPENCNPJ_FETCH_JSON_RETRY_DELAY_SECONDS` | deploy | Ajustam tentativas e espera ao buscar JSON de validação. |
+| `OPENCNPJ_VALIDATE_RETRIES` / `OPENCNPJ_VALIDATE_RETRY_DELAY_SECONDS` | deploy | Ajustam tentativas e espera da validação semântica pós-deploy. |
+| `OPENCNPJ_CHECK_INTERVAL_SECONDS` | entrypoint Docker | Intervalo do loop de deploy em container. Deve ser inteiro positivo; padrão `3600`. |
+
+Não há variável de ambiente específica para `Rclone.Executable`; configure o executável no `config.json`.
 
 ## Layout local
 
@@ -104,7 +237,7 @@ A página é implementada em React + TypeScript e continua sendo 100% estática 
 
 ## Deploy
 
-- Use `src/script/deploy.sh` para orquestrar o release:
+- Use `src/scripts/deploy.sh` para orquestrar o release:
   - roda o ETL com release versionado
   - ignora BigQuery com aviso quando `BigQuery.Enabled=false`
   - valida `OPENCNPJ_BIGQUERY_ENABLED` ou `BigQuery.Enabled`, `OPENCNPJ_BIGQUERY_PROJECT_ID` ou `BigQuery.ProjectId`, `BigQuery.Dataset`, o comando `bq` configurado e o acesso ao dataset quando BigQuery está habilitado

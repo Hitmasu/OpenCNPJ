@@ -52,4 +52,26 @@ public class RcloneClientTests
 
         Assert.AreEqual("--files-from-raw \"/tmp/files.txt\" ", result);
     }
+
+    [TestMethod]
+    public void ResolveExecutable_UsesDefault_WhenMissing()
+    {
+        Assert.AreEqual("rclone", RcloneClient.ResolveExecutableForTest(null));
+        Assert.AreEqual("rclone", RcloneClient.ResolveExecutableForTest(""));
+        Assert.AreEqual("rclone", RcloneClient.ResolveExecutableForTest("   "));
+    }
+
+    [TestMethod]
+    public void ResolveExecutable_TrimsExplicitCommand()
+    {
+        Assert.AreEqual("custom-rclone", RcloneClient.ResolveExecutableForTest(" custom-rclone "));
+    }
+
+    [TestMethod]
+    public void ResolveExecutable_RetainsAbsolutePath()
+    {
+        const string executable = "/opt/rclone/rclone";
+
+        Assert.AreEqual(executable, RcloneClient.ResolveExecutableForTest(executable));
+    }
 }

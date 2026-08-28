@@ -6,6 +6,7 @@
     "DownloadDir": "./downloads"
   },
   "Rclone": {
+    "Executable": "rclone",
     "RemoteBase": "Opencnpj:opencnpj/files",
     "Transfers": 4,
     "MaxConcurrentUploads": 1,

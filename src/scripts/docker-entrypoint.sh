@@ -25,6 +25,23 @@ require_command() {
   fi
 }
 
+is_filesystem_executable_path() {
+  [[ "$1" == */* || "$1" == *\\* ]]
+}
+
+require_executable() {
+  local executable="$1"
+  if is_filesystem_executable_path "$executable"; then
+    if [[ ! -f "$executable" || ! -x "$executable" ]]; then
+      echo "Executável obrigatório não encontrado ou sem permissão de execução: $executable" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  require_command "$executable"
+}
+
 require_file() {
   local path="$1"
   if [[ ! -f "$path" ]]; then
@@ -44,6 +61,28 @@ read_config_value() {
     if (current == null) process.exit(2);
     process.stdout.write(String(current));
   ' "$ETL_CONFIG" "$expression"
+}
+
+resolve_rclone_executable() {
+  local executable
+  executable="$(read_config_value "Rclone.Executable" 2>/dev/null || printf 'rclone')"
+  executable="$(node -e 'process.stdout.write(process.argv[1].trim())' "$executable")"
+  if [[ -z "$executable" ]]; then
+    executable="rclone"
+  fi
+
+  printf '%s\n' "$executable"
+}
+
+resolve_rclone_remote_base() {
+  if [[ -n "${RCLONE_REMOTE:-}" ]]; then
+    printf '%s\n' "${RCLONE_REMOTE%/}"
+    return 0
+  fi
+
+  local remote_base
+  remote_base="$(read_config_value "Rclone.RemoteBase")"
+  printf '%s\n' "${remote_base%/}"
 }
 
 read_bigquery_enabled() {
@@ -89,7 +128,7 @@ read_remote_name() {
     }
 
     process.stdout.write(remoteBase.slice(0, separator));
-  ' "$(read_config_value "Rclone.RemoteBase")"
+  ' "$(resolve_rclone_remote_base)"
 }
 
 require_rclone_remote() {
@@ -97,7 +136,7 @@ require_rclone_remote() {
   local remote_label="${remote_name}:"
   local remotes
 
-  if ! remotes="$(rclone listremotes 2>/dev/null)"; then
+  if ! remotes="$("$RCLONE_EXECUTABLE" listremotes 2>/dev/null)"; then
     echo "Não foi possível listar os remotes do rclone usando RCLONE_CONFIG=${RCLONE_CONFIG}." >&2
     exit 1
   fi
@@ -150,11 +189,13 @@ if ! [[ "$CHECK_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [[ "$CHECK_INTERVAL_SECONDS"
   exit 1
 fi
 
-require_command rclone
 require_command node
 require_command dotnet
 require_command npx
 require_command base64
+
+RCLONE_EXECUTABLE="$(resolve_rclone_executable)"
+require_executable "$RCLONE_EXECUTABLE"
 
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" && -n "${CF_API_TOKEN:-}" ]]; then
   export CLOUDFLARE_API_TOKEN="$CF_API_TOKEN"

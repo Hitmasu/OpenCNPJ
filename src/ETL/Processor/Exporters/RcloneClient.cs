@@ -14,6 +14,7 @@ public static class RcloneClient
     private static string RemoteBase =>
         (Environment.GetEnvironmentVariable("RCLONE_REMOTE") ?? AppConfig.Current.Rclone.RemoteBase).TrimEnd('/');
 
+    private static string RcloneExecutable => ResolveExecutable(AppConfig.Current.Rclone.Executable);
     private static int Transfers => Math.Max(1, AppConfig.Current.Rclone.Transfers);
     private static string BufferSize => NormalizeBufferSize(AppConfig.Current.Rclone.BufferSize);
     private static int UploadVerificationRetries => Math.Max(1, AppConfig.Current.Rclone.UploadVerificationRetries);
@@ -194,6 +195,11 @@ public static class RcloneClient
 
     internal static string BuildFilesFromArgumentForTest(string filesFromPath) => BuildFilesFromArgument(filesFromPath);
 
+    internal static string ResolveExecutableForTest(string? executable) => ResolveExecutable(executable);
+
+    private static string ResolveExecutable(string? executable) =>
+        string.IsNullOrWhiteSpace(executable) ? "rclone" : executable.Trim();
+
     private static string NormalizeBufferSize(string? bufferSize) =>
         string.IsNullOrWhiteSpace(bufferSize) ? "16M" : bufferSize.Trim();
 
@@ -288,7 +294,7 @@ public static class RcloneClient
     private static async Task<RcloneCommandResult> RunRcloneCommandAsync(string arguments, ProgressTask? progressTask = null)
     {
         using var process = new Process();
-        process.StartInfo.FileName = "rclone";
+        process.StartInfo.FileName = RcloneExecutable;
         process.StartInfo.Arguments = arguments;
         process.StartInfo.UseShellExecute = false;
         process.StartInfo.RedirectStandardOutput = true;

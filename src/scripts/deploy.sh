@@ -87,11 +87,27 @@ require_command() {
   fi
 }
 
+is_filesystem_executable_path() {
+  [[ "$1" == */* || "$1" == *\\* ]]
+}
+
+require_executable() {
+  local executable="$1"
+  if is_filesystem_executable_path "$executable"; then
+    if [[ ! -f "$executable" || ! -x "$executable" ]]; then
+      echo "Executável obrigatório não encontrado ou sem permissão de execução: $executable" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  require_command "$executable"
+}
+
 require_command dotnet
 require_command node
 require_command npx
 require_command curl
-require_command rclone
 require_command shasum
 
 generate_release_id() {
@@ -194,6 +210,28 @@ read_config_value() {
     if (current == null) process.exit(2);
     process.stdout.write(String(current));
   ' "$ETL_CONFIG" "$expression"
+}
+
+resolve_rclone_executable() {
+  local executable
+  executable="$(read_config_value "Rclone.Executable" 2>/dev/null || printf 'rclone')"
+  executable="$(node -e 'process.stdout.write(process.argv[1].trim())' "$executable")"
+  if [[ -z "$executable" ]]; then
+    executable="rclone"
+  fi
+
+  printf '%s\n' "$executable"
+}
+
+resolve_rclone_remote_base() {
+  if [[ -n "${RCLONE_REMOTE:-}" ]]; then
+    printf '%s\n' "${RCLONE_REMOTE%/}"
+    return 0
+  fi
+
+  local remote_base
+  remote_base="$(read_config_value "Rclone.RemoteBase")"
+  printf '%s\n' "${remote_base%/}"
 }
 
 read_bigquery_enabled() {
@@ -563,7 +601,7 @@ delete_old_releases() {
   [[ -n "$old_info" && -n "$new_info" ]] || return 0
 
   local remote_base
-  remote_base="$(read_config_value "Rclone.RemoteBase")"
+  remote_base="$(resolve_rclone_remote_base)"
 
   node -e '
     const oldInfo = JSON.parse(process.argv[1]);
@@ -631,19 +669,19 @@ delete_old_releases() {
     if [[ "$kind" == "base" && -n "$first" ]]; then
       local old_remote="${remote_base%/}/shards/releases/${first}"
       log "Removendo release base antigo ${first} em ${old_remote}"
-      rclone purge "$old_remote"
+      "$RCLONE_EXECUTABLE" purge "$old_remote"
     elif [[ "$kind" == "module" && -n "$first" && -n "$second" ]]; then
       local old_remote="${remote_base%/}/shards/modules/${first}/${second}"
       log "Removendo release antigo do módulo ${first}/${second} em ${old_remote}"
-      rclone purge "$old_remote"
+      "$RCLONE_EXECUTABLE" purge "$old_remote"
     elif [[ "$kind" == "routing" && -n "$first" && -n "$second" ]]; then
       local old_remote="${remote_base%/}/shards/modules/${first}/routing/${second}"
       log "Removendo roteamento antigo do módulo ${first}/${second} em ${old_remote}"
-      rclone purge "$old_remote"
+      "$RCLONE_EXECUTABLE" purge "$old_remote"
     elif [[ "$kind" == "segment" && -n "$first" && -n "$second" && -n "$third" ]]; then
       local old_remote="${remote_base%/}/shards/modules/${first}/segments/${second}/${third}"
       log "Removendo segmento antigo do módulo ${first}/${second}/${third} em ${old_remote}"
-      rclone purge "$old_remote"
+      "$RCLONE_EXECUTABLE" purge "$old_remote"
     fi
   done
 }
@@ -659,6 +697,9 @@ capture_current_info() {
 }
 
 require_bigquery_command_if_enabled
+
+RCLONE_EXECUTABLE="$(resolve_rclone_executable)"
+require_executable "$RCLONE_EXECUTABLE"
 
 if [[ -z "$RELEASE_ID" ]]; then
   RELEASE_ID="$(read_pending_release_id)"

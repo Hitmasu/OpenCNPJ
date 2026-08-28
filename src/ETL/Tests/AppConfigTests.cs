@@ -40,6 +40,77 @@ public sealed class AppConfigTests
     }
 
     [TestMethod]
+    public void RcloneExecutable_ShouldDefaultToRclone()
+    {
+        var settings = new AppConfig.RcloneSettings();
+
+        Assert.AreEqual("rclone", settings.Executable);
+    }
+
+    [TestMethod]
+    public void Load_ShouldDeserializeCustomRcloneExecutable()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-config-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(tempRoot, "config.json");
+
+        try
+        {
+            Directory.CreateDirectory(tempRoot);
+            File.WriteAllText(
+                configPath,
+                """
+                {
+                  "Rclone": {
+                    "Executable": "custom-rclone"
+                  }
+                }
+                """);
+
+            var config = AppConfig.Load(configPath);
+
+            Assert.AreEqual("custom-rclone", config.Rclone.Executable);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Load_ShouldRetainAbsoluteRcloneExecutablePath()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-config-{Guid.NewGuid():N}");
+        var configPath = Path.Combine(tempRoot, "config.json");
+        var executable = OperatingSystem.IsWindows()
+            ? @"C:\Tools\rclone\rclone.exe"
+            : "/opt/rclone/rclone";
+
+        try
+        {
+            Directory.CreateDirectory(tempRoot);
+            File.WriteAllText(
+                configPath,
+                $$"""
+                {
+                  "Rclone": {
+                    "Executable": "{{executable.Replace(@"\", @"\\")}}"
+                  }
+                }
+                """);
+
+            var config = AppConfig.Load(configPath);
+
+            Assert.AreEqual(executable, config.Rclone.Executable);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Load_ShouldOverrideBigQueryProjectIdFromEnvironment()
     {
         var previousEnabled = Environment.GetEnvironmentVariable(AppConfig.BigQueryEnabledEnvironmentVariable);

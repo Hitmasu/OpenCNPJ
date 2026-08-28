@@ -250,6 +250,56 @@ public sealed class DeployScriptTests
     }
 
     [TestMethod]
+    public void Deploy_ShouldUseConfiguredRcloneExecutable()
+    {
+        var script = File.ReadAllText(FindDeployScript());
+
+        Assert.IsTrue(
+            script.Contains("resolve_rclone_executable()", StringComparison.Ordinal),
+            "deploy.sh must resolve Rclone.Executable from config.json.");
+        Assert.IsTrue(
+            script.Contains("read_config_value \"Rclone.Executable\"", StringComparison.Ordinal),
+            "deploy.sh must read the configured rclone executable.");
+        Assert.IsTrue(
+            script.Contains("resolve_rclone_remote_base()", StringComparison.Ordinal),
+            "deploy.sh must resolve the rclone remote base through an override-aware helper.");
+        Assert.IsTrue(
+            script.Contains("RCLONE_REMOTE", StringComparison.Ordinal),
+            "deploy.sh must honor the existing RCLONE_REMOTE override.");
+        Assert.IsTrue(
+            script.Contains("executable=\"rclone\"", StringComparison.Ordinal),
+            "deploy.sh must fall back to rclone when Rclone.Executable is missing or blank.");
+        Assert.IsTrue(
+            script.Contains("require_executable \"$RCLONE_EXECUTABLE\"", StringComparison.Ordinal),
+            "deploy.sh must validate the effective executable.");
+        Assert.IsTrue(
+            script.Contains("\"$RCLONE_EXECUTABLE\" purge \"$old_remote\"", StringComparison.Ordinal),
+            "deploy.sh must use the configured executable for rclone purge operations.");
+        Assert.IsFalse(
+            script.Contains("require_command rclone", StringComparison.Ordinal),
+            "deploy.sh must not require only a PATH command named rclone.");
+        Assert.IsFalse(
+            script.Contains("rclone purge \"$old_remote\"", StringComparison.Ordinal),
+            "deploy.sh must not hardcode rclone for release cleanup.");
+    }
+
+    [TestMethod]
+    public void Deploy_ShouldValidateFilesystemRcloneExecutablePaths()
+    {
+        var script = File.ReadAllText(FindDeployScript());
+
+        Assert.IsTrue(
+            script.Contains("is_filesystem_executable_path()", StringComparison.Ordinal),
+            "deploy.sh must detect explicit filesystem executable paths.");
+        Assert.IsTrue(
+            script.Contains("[[ \"$1\" == */* || \"$1\" == *\\\\* ]]", StringComparison.Ordinal),
+            "deploy.sh must treat slash or backslash paths as filesystem paths.");
+        Assert.IsTrue(
+            script.Contains("[[ ! -f \"$executable\" || ! -x \"$executable\" ]]", StringComparison.Ordinal),
+            "deploy.sh must validate explicit paths with file and executable checks.");
+    }
+
+    [TestMethod]
     public void Deploy_ShouldPurgeCloudflareCacheAfterWorkerDeployBeforeValidation()
     {
         var script = File.ReadAllText(FindDeployScript());
@@ -347,6 +397,37 @@ public sealed class DeployScriptTests
         Assert.IsFalse(
             script.Contains("GOOGLE_" + "APPLICATION_" + "CREDENTIALS", StringComparison.Ordinal),
             "docker-entrypoint.sh must not require a mounted credential file.");
+    }
+
+    [TestMethod]
+    public void DockerEntrypoint_ShouldUseConfiguredRcloneExecutable()
+    {
+        var script = File.ReadAllText(FindDockerEntrypointScript());
+
+        Assert.IsTrue(
+            script.Contains("resolve_rclone_executable()", StringComparison.Ordinal),
+            "docker-entrypoint.sh must resolve Rclone.Executable from config.json.");
+        Assert.IsTrue(
+            script.Contains("read_config_value \"Rclone.Executable\"", StringComparison.Ordinal),
+            "docker-entrypoint.sh must read the configured rclone executable.");
+        Assert.IsTrue(
+            script.Contains("resolve_rclone_remote_base()", StringComparison.Ordinal),
+            "docker-entrypoint.sh must resolve the rclone remote base through an override-aware helper.");
+        Assert.IsTrue(
+            script.Contains("RCLONE_REMOTE", StringComparison.Ordinal),
+            "docker-entrypoint.sh must honor the existing RCLONE_REMOTE override.");
+        Assert.IsTrue(
+            script.Contains("require_executable \"$RCLONE_EXECUTABLE\"", StringComparison.Ordinal),
+            "docker-entrypoint.sh must validate the effective executable.");
+        Assert.IsTrue(
+            script.Contains("\"$RCLONE_EXECUTABLE\" listremotes", StringComparison.Ordinal),
+            "docker-entrypoint.sh must use the configured executable when validating remotes.");
+        Assert.IsFalse(
+            script.Contains("require_command rclone", StringComparison.Ordinal),
+            "docker-entrypoint.sh must not require only a PATH command named rclone.");
+        Assert.IsFalse(
+            script.Contains("rclone listremotes", StringComparison.Ordinal),
+            "docker-entrypoint.sh must not hardcode rclone for remote validation.");
     }
 
     [TestMethod]
