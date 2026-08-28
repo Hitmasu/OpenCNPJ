@@ -3,6 +3,8 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=America/Sao_Paulo
 
+ARG RCLONE_VERSION=1.75.0
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -26,14 +28,23 @@ RUN apt-get update \
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
-      amd64|arm64) rclone_arch="$arch" ;; \
+      amd64) \
+        rclone_arch="amd64"; \
+        rclone_sha256="aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa" \
+        ;; \
+      arm64) \
+        rclone_arch="arm64"; \
+        rclone_sha256="d0ad88ba4c8e285b7c9efa591e0ab643280a91741e13c27f3a9c0957ccfa5203" \
+        ;; \
       *) echo "Unsupported architecture for rclone: $arch" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://downloads.rclone.org/rclone-current-linux-${rclone_arch}.zip" -o /tmp/rclone.zip; \
-    unzip -q /tmp/rclone.zip -d /tmp; \
-    install -m 0755 /tmp/rclone-*-linux-${rclone_arch}/rclone /usr/local/bin/rclone; \
+    archive="rclone-v${RCLONE_VERSION}-linux-${rclone_arch}.zip"; \
+    curl -fsSL "https://downloads.rclone.org/v${RCLONE_VERSION}/${archive}" -o "/tmp/${archive}"; \
+    echo "${rclone_sha256}  /tmp/${archive}" | sha256sum -c -; \
+    unzip -q "/tmp/${archive}" -d /tmp; \
+    install -m 0755 "/tmp/rclone-v${RCLONE_VERSION}-linux-${rclone_arch}/rclone" /usr/local/bin/rclone; \
     ln -sf /usr/local/bin/rclone /usr/bin/rclone; \
-    rm -rf /tmp/rclone.zip /tmp/rclone-*-linux-${rclone_arch}; \
+    rm -rf "/tmp/${archive}" "/tmp/rclone-v${RCLONE_VERSION}-linux-${rclone_arch}"; \
     rclone version
 
 WORKDIR /app
