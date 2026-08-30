@@ -6,3 +6,15 @@
 **/.wrangler
 **/coverage
 **/TestResults
+
+# Local environment and credential files must never enter the Docker build context.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+**/rclone.conf
+**/*.key
+**/*.pfx
+**/*service-account*.json
+**/*service_account*.json
+**/application_default_credentials.json

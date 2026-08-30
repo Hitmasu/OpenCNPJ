@@ -27,6 +27,7 @@ public class AppConfig
 
     public class RcloneSettings
     {
+        public string Executable { get; set; } = "rclone";
         public string RemoteBase { get; set; } = string.Empty;
         public int Transfers { get; set; } = 0;
         public int MaxConcurrentUploads { get; set; } = 0;
