@@ -98,7 +98,8 @@ public static class RcloneClient
         {
             var remote = RemoteBase + "/" + remoteRelativePath.Trim('/');
             var filesFromPath = Path.Combine(Path.GetTempPath(), $"opencnpj-rclone-files-{Guid.NewGuid():N}.txt");
-            await File.WriteAllLinesAsync(filesFromPath, relativeFiles.OrderBy(path => path, StringComparer.Ordinal));
+            var selectedFiles = BuildSelectedUploadFiles(relativeFiles);
+            await File.WriteAllLinesAsync(filesFromPath, selectedFiles);
 
             try
             {
@@ -114,14 +115,8 @@ public static class RcloneClient
                                   $"--retries=-1 --retries-sleep=60s --low-level-retries=10";
 
                     var result = await RunRcloneCommandAsync(command, progressTask);
-                    var remoteHashes = await ListRemoteChecksumsAsync(
-                        remoteRelativePath,
-                        ["*.ndjson", "*.index.bin", "*.routing.bin"]);
-                    var remaining = relativeFiles
-                        .Where(path => path.EndsWith(".ndjson", StringComparison.OrdinalIgnoreCase)
-                                       || path.EndsWith(".index.bin", StringComparison.OrdinalIgnoreCase)
-                                       || path.EndsWith(".routing.bin", StringComparison.OrdinalIgnoreCase))
-                        .Count(path => !remoteHashes.ContainsKey(path));
+                    var remoteHashes = await ListSelectedRemoteChecksumsAsync(remoteRelativePath, filesFromPath);
+                    var remaining = selectedFiles.Count(path => !remoteHashes.ContainsKey(NormalizeRelativePath(path)));
 
                     if (result.ExitCode == 0 && remaining == 0)
                         return true;
@@ -191,9 +186,17 @@ public static class RcloneClient
         IEnumerable<string> includePatterns) =>
         BuildRemoteMd5SumArguments(remotePath, includePatterns);
 
+    internal static string BuildSelectedRemoteMd5SumArgumentsForTest(
+        string remotePath,
+        string filesFromPath) =>
+        BuildSelectedRemoteMd5SumArguments(remotePath, filesFromPath);
+
     internal static string NormalizeBufferSizeForTest(string? bufferSize) => NormalizeBufferSize(bufferSize);
 
     internal static string BuildFilesFromArgumentForTest(string filesFromPath) => BuildFilesFromArgument(filesFromPath);
+
+    internal static IReadOnlyList<string> BuildSelectedUploadFilesForTest(IEnumerable<string> relativeFiles) =>
+        BuildSelectedUploadFiles(relativeFiles);
 
     internal static string ResolveExecutableForTest(string? executable) => ResolveExecutable(executable);
 
@@ -228,6 +231,12 @@ public static class RcloneClient
         var filterArgs = BuildFilterArguments(includePatterns);
         return $"md5sum \"{remotePath}\" {filterArgs}";
     }
+
+    private static string BuildSelectedRemoteMd5SumArguments(string remotePath, string filesFromPath) =>
+        $"md5sum \"{remotePath}\" {BuildFilesFromArgument(filesFromPath)}";
+
+    private static string[] BuildSelectedUploadFiles(IEnumerable<string> relativeFiles) =>
+        relativeFiles.OrderBy(path => path, StringComparer.Ordinal).ToArray();
 
     private static bool IsUploadComplete(int localFileCount, int remoteFileCount) =>
         localFileCount >= 0 && remoteFileCount >= 0 && remoteFileCount == localFileCount;
@@ -268,6 +277,20 @@ public static class RcloneClient
 
     private static string NormalizeRelativePath(string path) =>
         path.Replace('\\', '/').TrimStart('/');
+
+    private static async Task<Dictionary<string, string>> ListSelectedRemoteChecksumsAsync(
+        string remoteRelativePath,
+        string filesFromPath)
+    {
+        var remote = RemoteBase + "/" + remoteRelativePath.Trim('/');
+        var result = await RunRcloneCommandAsync(
+            BuildSelectedRemoteMd5SumArguments(remote, filesFromPath));
+
+        if (result.ExitCode != 0)
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+
+        return ParseMd5SumOutput(result.Output);
+    }
 
     private static async Task<int> CountRemoteFilesAsync(string remotePath, IEnumerable<string> includePatterns)
     {
