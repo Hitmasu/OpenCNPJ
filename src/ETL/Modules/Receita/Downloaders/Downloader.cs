@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Xml.Linq;
+using CNPJExporter.Integrations;
 using CNPJExporter.Modules.Receita.Models;
 using Spectre.Console;
 
@@ -36,7 +37,7 @@ public class Downloader
 
         _http = new()
         {
-            Timeout = Timeout.InfiniteTimeSpan
+            Timeout = DownloadSafetyDefaults.RequestTimeout
         };
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("OpenCNPJ", "1.0"));
     }
@@ -234,47 +235,42 @@ public class Downloader
     private async Task<string> DownloadOneAsync(DavEntry entry, string filePath, ProgressTask task, CancellationToken ct)
     {
         const int maxRetries = 3;
-
-        if (File.Exists(filePath))
-            File.Delete(filePath);
+        var options = DownloadSafetyDefaults.ForExpectedLength(entry.ContentLength);
 
         for (var retry = 1; retry <= maxRetries; retry++)
         {
             try
             {
-                using var response = await _http.GetAsync(entry.Uri, HttpCompletionOption.ResponseHeadersRead, ct);
-                response.EnsureSuccessStatusCode();
+                task.MaxValue = entry.ContentLength is > 0
+                    ? entry.ContentLength.Value
+                    : 1_000_000;
 
-                var total = response.Content.Headers.ContentLength ?? entry.ContentLength ?? 0;
-                task.MaxValue = total > 0 ? total : 1_000_000;
-
-                await using var src = await response.Content.ReadAsStreamAsync(ct);
-                await using var dst = new FileStream(
+                await SafeHttpDownloader.DownloadAsync(
+                    _http,
+                    entry.Uri,
                     filePath,
-                    FileMode.Create,
-                    FileAccess.Write,
-                    FileShare.Read,
-                    1 << 20,
-                    useAsync: true);
+                    options,
+                    entry.ContentLength,
+                    progress: (received, expected) =>
+                    {
+                        if (expected is > 0)
+                        {
+                            task.MaxValue = expected.Value;
+                            task.Value = Math.Min(received, expected.Value);
+                            return;
+                        }
 
-                var buffer = new byte[1 << 16];
-                long readTotal = 0;
-                int read;
-                while ((read = await src.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
-                {
-                    await dst.WriteAsync(buffer.AsMemory(0, read), ct);
-                    readTotal += read;
-                    if (total > 0)
-                        task.Value = readTotal;
-                    else
-                        task.Increment(read);
-                }
+                        if (received >= task.MaxValue)
+                            task.MaxValue = received + 1_000_000;
+                        task.Value = received;
+                    },
+                    cancellationToken: ct);
 
                 task.Description = $"[green]✓ {entry.Name}[/]";
                 task.Value = task.MaxValue;
                 return filePath;
             }
-            catch when (retry < maxRetries)
+            catch when (retry < maxRetries && !ct.IsCancellationRequested)
             {
                 task.Description = $"[red]✗ {entry.Name} (tentativa {retry})[/]";
                 await Task.Delay(TimeSpan.FromSeconds(retry), ct);

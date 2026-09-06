@@ -19,6 +19,20 @@ public sealed record DownloadSafetyOptions(TimeSpan Timeout, long MaxBytes)
     }
 }
 
+public static class DownloadSafetyDefaults
+{
+    public static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan DownloadTimeout = TimeSpan.FromHours(2);
+    public const long UnknownContentLengthMaxBytes = 16L * 1024 * 1024 * 1024;
+
+    public static DownloadSafetyOptions ForExpectedLength(long? expectedContentLength) =>
+        new(
+            DownloadTimeout,
+            expectedContentLength is > 0
+                ? expectedContentLength.Value
+                : UnknownContentLengthMaxBytes);
+}
+
 public sealed record SafeDownloadResult(long BytesReceived, long? ExpectedContentLength);
 
 public static class SafeHttpDownloader

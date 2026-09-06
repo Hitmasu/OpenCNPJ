@@ -384,46 +384,18 @@ public sealed class Downloader
         string zipPath,
         CancellationToken cancellationToken)
     {
-        var partialPath = zipPath + ".part";
-        DeleteIfExists(partialPath);
+        AnsiConsole.MarkupLine(
+            $"[cyan]Baixando {_definition.Key.EscapeMarkup()} {source.FileName.EscapeMarkup()}...[/]");
+        using var http = CreateHttpClient();
+        await SafeHttpDownloader.DownloadAsync(
+            http,
+            source.Uri,
+            zipPath,
+            DownloadSafetyDefaults.ForExpectedLength(source.ContentLength),
+            source.ContentLength,
+            cancellationToken: cancellationToken);
 
-        try
-        {
-            AnsiConsole.MarkupLine(
-                $"[cyan]Baixando {_definition.Key.EscapeMarkup()} {source.FileName.EscapeMarkup()}...[/]");
-            using var http = CreateHttpClient();
-            using var response = await http.GetAsync(
-                source.Uri,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken))
-            await using (var output = new FileStream(
-                             partialPath,
-                             FileMode.Create,
-                             FileAccess.Write,
-                             FileShare.Read,
-                             1 << 20,
-                             FileOptions.Asynchronous | FileOptions.SequentialScan))
-            {
-                await input.CopyToAsync(output, cancellationToken);
-            }
-
-            if (source.ContentLength is not null
-                && new FileInfo(partialPath).Length != source.ContentLength.Value)
-            {
-                throw new InvalidDataException(
-                    $"Download incompleto de {_definition.Key}: esperado {source.ContentLength.Value} bytes.");
-            }
-
-            File.Move(partialPath, zipPath, overwrite: true);
-            await WriteSourceMetadataAsync(zipPath, source, cancellationToken);
-        }
-        finally
-        {
-            DeleteIfExists(partialPath);
-        }
+        await WriteSourceMetadataAsync(zipPath, source, cancellationToken);
     }
 
     private async Task<ExtractedDataset> ExtractRequiredCsvsAsync(
@@ -647,7 +619,7 @@ public sealed class Downloader
     {
         var http = new HttpClient
         {
-            Timeout = Timeout.InfiniteTimeSpan
+            Timeout = DownloadSafetyDefaults.RequestTimeout
         };
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("OpenCNPJ", "1.0"));
         return http;
