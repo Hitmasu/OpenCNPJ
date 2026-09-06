@@ -1,0 +1,39 @@
+name: Build e Testes
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build e testes (.NET 10)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restaurar dependências
+        run: dotnet restore src/ETL/OpenCNPJ.sln
+
+      - name: Compilar
+        run: dotnet build src/ETL/OpenCNPJ.sln --configuration Release --no-restore
+
+      - name: Executar testes
+        run: dotnet test src/ETL/OpenCNPJ.sln --configuration Release --no-build --verbosity normal
