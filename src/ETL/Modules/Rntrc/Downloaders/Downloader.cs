@@ -41,14 +41,13 @@ public sealed class Downloader
 
         AnsiConsole.MarkupLine($"[cyan]Baixando RNTRC {source.FileName.EscapeMarkup()}...[/]");
         using var http = CreateHttpClient();
-        using var response = await http.GetAsync(source.Uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken))
-        await using (var output = new FileStream(csvPath, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 20, useAsync: true))
-        {
-            await input.CopyToAsync(output, cancellationToken);
-        }
+        await SafeHttpDownloader.DownloadAsync(
+            http,
+            source.Uri,
+            csvPath,
+            DownloadSafetyDefaults.ForExpectedLength(source.ContentLength),
+            source.ContentLength,
+            cancellationToken: cancellationToken);
 
         await WriteSourceMetadataAsync(csvPath, source, cancellationToken);
         return csvPath;
@@ -190,7 +189,7 @@ public sealed class Downloader
     {
         var http = new HttpClient
         {
-            Timeout = Timeout.InfiniteTimeSpan
+            Timeout = DownloadSafetyDefaults.RequestTimeout
         };
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("OpenCNPJ", "1.0"));
         return http;
