@@ -53,6 +53,7 @@ internal static class JsonProjection
                             descricao := COALESCE(map_extract_value(cnae_lookup.descricoes, codigo), ''),
                             is_principal := codigo = COALESCE(e.cnae_principal, '')
                         )),
+                    codigo_natureza_juridica := COALESCE(emp.natureza_juridica, ''),
                     natureza_juridica := COALESCE(nat.descricao, ''),
                     tipo_logradouro := COALESCE(e.tipo_logradouro, ''),
                     logradouro := COALESCE(e.logradouro, ''),
