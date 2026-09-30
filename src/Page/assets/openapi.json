@@ -104,6 +104,8 @@
                       "situacao_cadastral": "ATIVA",
                       "data_inicio_atividade": "2026-01-15",
                       "cnae_principal": "6201501",
+                      "codigo_natureza_juridica": "2062",
+                      "natureza_juridica": "Sociedade Empresária Limitada",
                       "uf": "SP",
                       "municipio": "SAO PAULO",
                       "porte_empresa": "DEMAIS"
@@ -269,6 +271,17 @@
           },
           "situacao_cadastral": {
             "type": "string"
+          },
+          "codigo_natureza_juridica": {
+            "type": "string",
+            "description": "Código da natureza jurídica conforme a tabela da Receita Federal.",
+            "maxLength": 4,
+            "examples": ["2062"]
+          },
+          "natureza_juridica": {
+            "type": "string",
+            "description": "Descrição da natureza jurídica.",
+            "examples": ["Sociedade Empresária Limitada"]
           },
           "cno": {
             "oneOf": [
