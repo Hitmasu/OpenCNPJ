@@ -68,7 +68,9 @@ public sealed class ReceitaBigQueryParquetExporterTests
                         to_json(qualificacao_responsavel) AS qualificacao_responsavel_json,
                         to_json(motivo_situacao_cadastral) AS motivo_situacao_cadastral_json,
                         to_json(pais) AS pais_json,
-                        to_json(QSA) AS qsa_json
+                        to_json(QSA) AS qsa_json,
+                        codigo_natureza_juridica,
+                        natureza_juridica
                     FROM read_parquet('{EscapeSqlLiteral(outputPaths.Single())}')";
 
                 await using var reader = await cmd.ExecuteReaderAsync();
@@ -115,6 +117,9 @@ public sealed class ReceitaBigQueryParquetExporterTests
                 Assert.AreEqual("ESTADOS UNIDOS", qsa.RootElement[0].GetProperty("pais").GetProperty("descricao").GetString());
                 Assert.AreEqual("12345678901", qsa.RootElement[0].GetProperty("representante_legal").GetString());
                 Assert.AreEqual("05", qsa.RootElement[0].GetProperty("qualificacao_representante").GetProperty("codigo").GetString());
+
+                Assert.AreEqual("2062", reader.GetString(21));
+                Assert.AreEqual("Sociedade Empresária Limitada", reader.GetString(22));
 
                 Assert.IsFalse(await reader.ReadAsync());
             }
