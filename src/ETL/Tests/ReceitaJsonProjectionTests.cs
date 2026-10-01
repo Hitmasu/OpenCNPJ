@@ -150,6 +150,8 @@ public sealed class ReceitaJsonProjectionTests
             using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
 
+            Assert.AreEqual("2062", root.GetProperty("codigo_natureza_juridica").GetString());
+            Assert.AreEqual("Sociedade Empresária Limitada", root.GetProperty("natureza_juridica").GetString());
             Assert.AreEqual("49", root.GetProperty("qualificacao_responsavel").GetProperty("codigo").GetString());
             Assert.AreEqual("Sócio-Administrador", root.GetProperty("qualificacao_responsavel").GetProperty("descricao").GetString());
             Assert.AreEqual("ENTE TESTE", root.GetProperty("ente_federativo").GetString());

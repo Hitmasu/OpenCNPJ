@@ -21,6 +21,7 @@ export const CNPJ_RESPONSE_SCHEMA = {
     "data_inicio_atividade",
     "cnae_principal",
     "cnaes_secundarios",
+    "codigo_natureza_juridica",
     "natureza_juridica",
     "tipo_logradouro",
     "logradouro",
@@ -96,6 +97,13 @@ export const CNPJ_RESPONSE_SCHEMA = {
         maxLength: 7,
         examples: ["2330302"],
       },
+    },
+    codigo_natureza_juridica: {
+      type: "string",
+      description: "Código da natureza jurídica conforme a tabela da Receita Federal, ou string vazia quando não informado.",
+      minLength: 0,
+      maxLength: 4,
+      examples: ["2062"],
     },
     natureza_juridica: { type: "string", minLength: 0, maxLength: 200 },
     tipo_logradouro: {

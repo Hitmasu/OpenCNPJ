@@ -887,6 +887,7 @@ test("fetch returns JSON Schema 2020-12 on /schema", async () => {
     "cnpj",
     "razao_social",
     "cnae_principal",
+    "codigo_natureza_juridica",
     "natureza_juridica",
     "cep",
     "uf",
@@ -922,6 +923,7 @@ test("fetch returns JSON Schema 2020-12 on /schema", async () => {
 
   const properties = schema.properties as Record<string, { type?: string; oneOf?: Array<{ type?: string; $ref?: string }> }>;
   assert.equal(properties.cnpj?.type, "string");
+  assert.equal(properties.codigo_natureza_juridica?.type, "string");
   assert.deepEqual(
     properties.rntrc?.oneOf,
     [

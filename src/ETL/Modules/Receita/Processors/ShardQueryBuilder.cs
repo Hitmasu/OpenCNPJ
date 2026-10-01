@@ -198,6 +198,7 @@ public sealed class ShardQueryBuilder
                             descricao := COALESCE(map_extract_value(cnae_lookup.descricoes, codigo), ''),
                             is_principal := codigo = COALESCE(e.cnae_principal, '')
                         )) AS cnaes,
+                    COALESCE(emp.natureza_juridica, '') AS codigo_natureza_juridica,
                     COALESCE(nat.descricao, '') AS natureza_juridica,
                     COALESCE(e.tipo_logradouro, '') AS tipo_logradouro,
                     COALESCE(e.logradouro, '') AS logradouro,
