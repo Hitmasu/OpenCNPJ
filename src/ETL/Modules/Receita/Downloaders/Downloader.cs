@@ -135,7 +135,7 @@ public class Downloader
             var isCollection = prop.Element(dav + "resourcetype")?.Element(dav + "collection") is not null;
             var contentLength = TryParseInt64(prop.Element(dav + "getcontentlength")?.Value);
             var contentType = prop.Element(dav + "getcontenttype")?.Value;
-            var eTag = prop.Element(dav + "getetag")?.Value?.Trim('"');
+            var eTag = prop.Element(dav + "getetag")?.Value?.Trim();
             var lastModified = TryParseDate(prop.Element(dav + "getlastmodified")?.Value);
 
             entries.Add(new(
@@ -264,6 +264,8 @@ public class Downloader
                             task.MaxValue = received + 1_000_000;
                         task.Value = received;
                     },
+                    entityTag: entry.ETag,
+                    lastModified: entry.LastModified,
                     cancellationToken: ct);
 
                 task.Description = $"[green]✓ {entry.Name}[/]";
