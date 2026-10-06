@@ -27,6 +27,7 @@ export type SegmentRoutingIndex = {
 };
 
 export type RuntimeInfo = {
+  last_updated?: string;
   storage_release_id?: string;
   datasets?: Record<string, DatasetInfo>;
 };
@@ -41,6 +42,7 @@ export type DatasetSegmentInfo = {
 export type DatasetInfo = {
   json_property_name?: string;
   storage_release_id?: string;
+  updated_at?: string;
   routing_release_id?: string;
   segment_collection_property?: string;
   segments?: DatasetSegmentInfo[];
