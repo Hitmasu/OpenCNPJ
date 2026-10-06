@@ -62,6 +62,14 @@ export default {
           return jsonError(404, "not found");
         }
 
+        if (selection.value.includeReceita) {
+          const updatedAt = runtimeInfo?.datasets?.receita?.updated_at
+            ?? runtimeInfo?.last_updated;
+          if (updatedAt) {
+            record.updated_at = updatedAt;
+          }
+        }
+
         return jsonOk(record);
       });
     } catch (error) {

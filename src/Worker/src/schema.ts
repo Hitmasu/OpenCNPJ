@@ -50,6 +50,14 @@ export const CNPJ_RESPONSE_SCHEMA = {
       maxLength: 14,
       examples: ["41132876000179", "12ABC34501DE35"],
     },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      description: "Timestamp ISO 8601 da última atualização publicada da base da Receita Federal. O valor é derivado do info.json no momento da resposta e não é armazenado nos shards.",
+      minLength: 0,
+      maxLength: 40,
+      examples: ["2026-04-14T19:56:00Z"],
+    },
     razao_social: { type: "string", minLength: 0, maxLength: 200 },
     nome_fantasia: { type: "string", minLength: 0, maxLength: 200 },
     situacao_cadastral: {

@@ -563,8 +563,13 @@ test("fetch with datasets=cno returns only the requested module", async () => {
   });
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
+      last_updated: "2026-04-14T19:56:00Z",
       storage_release_id: "base-release",
       datasets: {
+        receita: {
+          storage_release_id: "base-release",
+          updated_at: "2026-04-14T19:56:00Z",
+        },
         cno: {
           json_property_name: "cno",
           storage_release_id: "cno-release",
@@ -601,6 +606,69 @@ test("fetch with datasets=cno returns only the requested module", async () => {
       range: { offset: 0, length: moduleFixture.ndjson.length },
     },
   ]);
+});
+
+test("fetch adds Receita update timestamp from info.json without changing the shard payload", async () => {
+  const fixture = createLookupFixture();
+  const bucket = new FakeBucket({
+    "files/info.json": JSON.stringify({
+      last_updated: "2026-04-01T00:00:00Z",
+      storage_release_id: "base-release",
+      datasets: {
+        receita: {
+          storage_release_id: "base-release",
+          updated_at: "2026-04-14T19:56:00Z",
+        },
+      },
+    }),
+    "files/shards/releases/base-release/000.index.bin": fixture.index,
+    "files/shards/releases/base-release/000.ndjson": fixture.ndjson,
+  });
+  const assets = new FakeAssetsFetcher({});
+
+  const response = await worker.fetch(
+    new Request(`https://worker.invalid/${fixture.cnpj}`),
+    {
+      CNPJ_BUCKET: bucket as unknown as R2Bucket,
+      ASSETS: assets as unknown as Fetcher,
+    } satisfies Env,
+    createExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ...fixture.payload,
+    updated_at: "2026-04-14T19:56:00Z",
+  });
+  assert.ok(!fixture.ndjson.includes("updated_at"));
+});
+
+test("fetch falls back to last_updated for Receita update timestamp", async () => {
+  const fixture = createLookupFixture();
+  const bucket = new FakeBucket({
+    "files/info.json": JSON.stringify({
+      last_updated: "2026-04-14T19:56:00Z",
+      storage_release_id: "base-release",
+    }),
+    "files/shards/releases/base-release/000.index.bin": fixture.index,
+    "files/shards/releases/base-release/000.ndjson": fixture.ndjson,
+  });
+  const assets = new FakeAssetsFetcher({});
+
+  const response = await worker.fetch(
+    new Request(`https://worker.invalid/${fixture.cnpj}?datasets=receita`),
+    {
+      CNPJ_BUCKET: bucket as unknown as R2Bucket,
+      ASSETS: assets as unknown as Fetcher,
+    } satisfies Env,
+    createExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ...fixture.payload,
+    updated_at: "2026-04-14T19:56:00Z",
+  });
 });
 
 test("fetch defaults to the Receita dataset when no dataset is requested", async () => {
@@ -923,6 +991,7 @@ test("fetch returns JSON Schema 2020-12 on /schema", async () => {
 
   const properties = schema.properties as Record<string, { type?: string; oneOf?: Array<{ type?: string; $ref?: string }> }>;
   assert.equal(properties.cnpj?.type, "string");
+  assert.equal(properties.updated_at?.type, "string");
   assert.equal(properties.codigo_natureza_juridica?.type, "string");
   assert.deepEqual(
     properties.rntrc?.oneOf,
