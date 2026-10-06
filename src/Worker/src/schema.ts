@@ -52,6 +52,7 @@ export const CNPJ_RESPONSE_SCHEMA = {
     },
     updated_at: {
       type: "string",
+      format: "date-time",
       description: "Timestamp ISO 8601 da última atualização publicada da base da Receita Federal. O valor é derivado do info.json no momento da resposta e não é armazenado nos shards.",
       minLength: 0,
       maxLength: 40,
