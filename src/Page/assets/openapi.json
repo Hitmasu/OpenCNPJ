@@ -99,6 +99,7 @@
                     "summary": "Resposta simples",
                     "value": {
                       "cnpj": "12ABC34501DE35",
+                      "updated_at": "2026-04-14T19:56:00Z",
                       "razao_social": "EMPRESA EXEMPLO LTDA",
                       "nome_fantasia": "EMPRESA EXEMPLO",
                       "situacao_cadastral": "ATIVA",
@@ -262,6 +263,11 @@
             "type": "string",
             "pattern": "^[A-Z0-9]{12}\\d{2}$",
             "examples": ["12ABC34501DE35"]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Última atualização publicada da base da Receita Federal. O Worker deriva o valor do info.json sem duplicá-lo nos shards."
           },
           "razao_social": {
             "type": "string"
