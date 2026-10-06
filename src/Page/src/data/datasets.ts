@@ -32,6 +32,7 @@ export const datasetDetails: Record<DatasetKey, DatasetDetail> = {
     description:
       'Base cadastral principal do CNPJ: estabelecimento, razão social, nome fantasia, CNAEs, endereço, situação cadastral, Simples/MEI e quadro societário.',
     schemaFields: [
+      { field: 'updated_at', type: 'string', description: 'Timestamp ISO 8601 da última atualização publicada da base da Receita Federal.' },
       { field: 'cnpj', type: 'string', description: 'CNPJ com 14 caracteres, sem máscara. Pode conter letras nos 12 primeiros caracteres e 2 dígitos verificadores no final.' },
       { field: 'razao_social', type: 'string', description: 'Razão social da pessoa jurídica.' },
       { field: 'nome_fantasia', type: 'string', description: 'Nome fantasia publicado pela Receita, quando existir.' },
