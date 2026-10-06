@@ -563,8 +563,13 @@ test("fetch with datasets=cno returns only the requested module", async () => {
   });
   const bucket = new FakeBucket({
     "files/info.json": JSON.stringify({
+      last_updated: "2026-04-14T19:56:00Z",
       storage_release_id: "base-release",
       datasets: {
+        receita: {
+          storage_release_id: "base-release",
+          updated_at: "2026-04-14T19:56:00Z",
+        },
         cno: {
           json_property_name: "cno",
           storage_release_id: "cno-release",
