@@ -6,6 +6,7 @@ Worker Cloudflare que lê os índices binários publicados como Static Assets e 
 
 - `GET /info` lê `files/info.json` dos Static Assets do Worker, com fallback para R2.
 - `GET /{cnpj}` retorna, por padrão, somente os dados da Receita. Para incluir módulos, use uma lista explícita, por exemplo `?datasets=receita,cno,rntrc`.
+- Quando `receita` participa da consulta, a resposta inclui `updated_at`, derivado de `datasets.receita.updated_at` do `info.json`, com fallback para `last_updated`. Esse metadado é anexado no Worker e não é duplicado nos shards.
 - A consulta normaliza o CNPJ, calcula o shard por prefixo de 3 caracteres, resolve o release por `storage_release_id`, tenta ler o índice binário no R2 em `files/shards/releases/{release}/{prefix}.index.bin` e, se não existir, cai para o asset legado `files/shards/{prefix}.index.bin`; depois busca o `*.ndjson` do mesmo release no R2.
 - `OPTIONS` responde com CORS permissivo.
 
