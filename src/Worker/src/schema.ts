@@ -58,7 +58,12 @@ export const CNPJ_RESPONSE_SCHEMA = {
       maxLength: 40,
       examples: ["2026-04-14T19:56:00Z"],
     },
-    razao_social: { type: "string", minLength: 0, maxLength: 200 },
+    razao_social: {
+      type: "string",
+      description: "Razão social. Para empresário individual (MEI), o CPF que a Receita publica no fim do nome é removido.",
+      minLength: 0,
+      maxLength: 200,
+    },
     nome_fantasia: { type: "string", minLength: 0, maxLength: 200 },
     situacao_cadastral: {
       type: "string",
@@ -194,6 +199,10 @@ export const CNPJ_RESPONSE_SCHEMA = {
       minLength: 0,
       maxLength: 10,
       examples: ["2021-03-08", ""],
+    },
+    lgpd_anonimizado: {
+      type: "boolean",
+      description: "true quando campos pessoais deste CNPJ foram anonimizados a pedido do titular (LGPD).",
     },
     QSA: {
       type: "array",

@@ -3,6 +3,7 @@ using CNPJExporter.Configuration;
 using CNPJExporter.Integrations;
 using CNPJExporter.Modules.Receita;
 using CNPJExporter.Modules.Receita.Downloaders;
+using CNPJExporter.Modules.Receita.Processors;
 using CNPJExporter.Processors.Models;
 using CNPJExporter.Processors;
 using CNPJExporter.Processors.BigQuery;
@@ -51,6 +52,7 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
 
         var totalSteps = 5 + (bigQueryEnabled ? 1 : 0) + (settings.CleanupOnSuccess ? 1 : 0);
         var currentMonth = DatasetPublicationPolicy.GetCurrentMonth();
+        var lgpd = LgpdPolicy.LoadDefault();
         var receitaIntegration = new DataIntegration();
         receitaIntegration.Descriptor.Validate();
         var integrations = DataIntegrationRegistry.CreateDefault();
@@ -186,7 +188,8 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                         selectedMonth);
                     await new ReceitaBigQueryParquetExporter(
                         receitaParquetRoot,
-                        AppConfig.Current.Shards.PrefixLength)
+                        AppConfig.Current.Shards.PrefixLength,
+                        lgpd)
                         .MaterializeAsync(selectedMonth);
                 }
 

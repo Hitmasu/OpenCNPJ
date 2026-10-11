@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CNPJExporter.Modules.Receita;
+using CNPJExporter.Modules.Receita.Processors;
 using DuckDB.NET.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -33,7 +34,7 @@ public sealed class ReceitaBigQueryParquetExporterTests
                 await SeedReceitaProjectionDataAsync(connection, parquetRoot);
             }
 
-            var outputPaths = await new BigQueryParquetExporter(parquetRoot, shardPrefixLength: 3)
+            var outputPaths = await new BigQueryParquetExporter(parquetRoot, shardPrefixLength: 3, LgpdPolicy.Empty)
                 .MaterializeAsync("2026-04");
 
             Assert.AreEqual(1, outputPaths.Count);
@@ -122,6 +123,54 @@ public sealed class ReceitaBigQueryParquetExporterTests
                 Assert.AreEqual("Sociedade Empresária Limitada", reader.GetString(22));
 
                 Assert.IsFalse(await reader.ReadAsync());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task MaterializeAsync_ShouldAnonymizeLgpdListedCnpj()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-receita-bigquery-lgpd-{Guid.NewGuid():N}");
+        var parquetRoot = Path.Combine(tempRoot, "parquet");
+        var policyPath = Path.Combine(tempRoot, "lgpd.json");
+
+        try
+        {
+            await using (var connection = new DuckDBConnection("Data Source=:memory:"))
+            {
+                await connection.OpenAsync();
+                await SeedReceitaProjectionDataAsync(connection, parquetRoot);
+            }
+
+            await File.WriteAllTextAsync(policyPath, """
+                { "12ABC34501DE35": ["razao_social", "endereco", "email", "telefones"] }
+                """);
+
+            var outputPaths = await new BigQueryParquetExporter(parquetRoot, shardPrefixLength: 3, LgpdPolicy.Load(policyPath))
+                .MaterializeAsync("2026-04");
+
+            await using (var connection = new DuckDBConnection("Data Source=:memory:"))
+            {
+                await connection.OpenAsync();
+                await using var cmd = connection.CreateCommand();
+                cmd.CommandText = $@"
+                    SELECT razao_social, email, logradouro, numero, cep, telefones[1].numero, lgpd_anonimizado
+                    FROM read_parquet('{EscapeSqlLiteral(outputPaths.Single())}')";
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                Assert.IsTrue(await reader.ReadAsync());
+                Assert.AreEqual("EMPRESA T******", reader.GetString(0));
+                Assert.AreEqual("c*******@example.invalid", reader.GetString(1));
+                Assert.AreEqual("", reader.GetString(2));
+                Assert.AreEqual("", reader.GetString(3));
+                Assert.AreEqual("", reader.GetString(4));
+                Assert.AreEqual("900000000", reader.GetString(5));
+                Assert.IsTrue(reader.GetBoolean(6));
             }
         }
         finally

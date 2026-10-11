@@ -173,6 +173,26 @@ Não há variável de ambiente específica para `Rclone.Executable`; configure o
 
 Os artefatos locais não são apagados automaticamente, exceto quando o pipeline é executado com `--cleanup-on-success`. Nesse modo, o cleanup remove downloads, CSVs extraídos e temporários, mas preserva Parquets e releases locais para permitir recomposição incremental.
 
+## LGPD
+
+O arquivo `lgpd.json` (raiz do repositório) lista os CNPJs com dados pessoais a anonimizar e os campos de cada um:
+
+```json
+{
+  "00000000000000": ["razao_social", "nome_fantasia", "endereco", "email", "telefones"]
+}
+```
+
+A anonimização vale para todos os destinos da Receita (API, ZIP e BigQuery) e entra no próximo release gerado:
+
+- `razao_social` / `nome_fantasia`: primeiro nome + inicial do segundo (`JOAO S******`).
+- `endereco`: `logradouro`, `numero` e `cep` ficam vazios.
+- `email`: primeiro caractere + domínio (`J*******@EXAMPLE.COM`).
+- `telefones`: DDD preservado; número vira primeiro dígito + zeros (`90000000`).
+- Os registros listados recebem `lgpd_anonimizado: true`.
+
+Independente da lista, o CPF que a Receita publica no fim da razão social de empresário individual (MEI, natureza `2135`) é removido de toda a base. O pipeline falha se o arquivo estiver ausente, se um CNPJ for inválido ou se houver um campo desconhecido.
+
 ## Integrações
 
 - O ETL possui a interface interna `IDataIntegration` para sub-módulos de dados.

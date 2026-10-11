@@ -13,11 +13,13 @@ public sealed class BigQueryParquetExporter
 
     private readonly string _parquetRoot;
     private readonly int _shardPrefixLength;
+    private readonly LgpdPolicy _lgpd;
 
-    public BigQueryParquetExporter(string parquetRoot, int shardPrefixLength)
+    public BigQueryParquetExporter(string parquetRoot, int shardPrefixLength, LgpdPolicy lgpd)
     {
         _parquetRoot = parquetRoot;
         _shardPrefixLength = Math.Max(1, shardPrefixLength);
+        _lgpd = lgpd;
     }
 
     public async Task<IReadOnlyList<string>> MaterializeAsync(
@@ -30,7 +32,7 @@ public sealed class BigQueryParquetExporter
 
         Directory.CreateDirectory(outputDir);
 
-        var shardQueryBuilder = new ShardQueryBuilder(_parquetRoot);
+        var shardQueryBuilder = new ShardQueryBuilder(_parquetRoot, _lgpd);
         var prefixes = shardQueryBuilder.GetExistingShardPrefixes();
         if (prefixes.Count == 0)
             throw new InvalidOperationException("Nenhuma partição da Receita encontrada para materializar o BigQuery.");
