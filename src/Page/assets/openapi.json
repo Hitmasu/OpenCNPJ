@@ -270,7 +270,8 @@
             "description": "Última atualização publicada da base da Receita Federal. O Worker deriva o valor do info.json sem duplicá-lo nos shards."
           },
           "razao_social": {
-            "type": "string"
+            "type": "string",
+            "description": "Razão social. Para empresário individual (MEI), o CPF publicado no fim do nome é removido."
           },
           "nome_fantasia": {
             "type": "string"
@@ -288,6 +289,10 @@
             "type": "string",
             "description": "Descrição da natureza jurídica.",
             "examples": ["Sociedade Empresária Limitada"]
+          },
+          "lgpd_anonimizado": {
+            "type": "boolean",
+            "description": "true quando campos pessoais deste CNPJ foram anonimizados a pedido do titular (LGPD)."
           },
           "cno": {
             "oneOf": [

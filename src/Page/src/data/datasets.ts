@@ -34,7 +34,7 @@ export const datasetDetails: Record<DatasetKey, DatasetDetail> = {
     schemaFields: [
       { field: 'updated_at', type: 'string', description: 'Timestamp ISO 8601 da última atualização publicada da base da Receita Federal.' },
       { field: 'cnpj', type: 'string', description: 'CNPJ com 14 caracteres, sem máscara. Pode conter letras nos 12 primeiros caracteres e 2 dígitos verificadores no final.' },
-      { field: 'razao_social', type: 'string', description: 'Razão social da pessoa jurídica.' },
+      { field: 'razao_social', type: 'string', description: 'Razão social da pessoa jurídica. Para MEI, o CPF publicado no fim do nome é removido.' },
       { field: 'nome_fantasia', type: 'string', description: 'Nome fantasia publicado pela Receita, quando existir.' },
       { field: 'situacao_cadastral', type: 'string', description: 'Situação cadastral mapeada a partir do código da Receita.' },
       { field: 'data_situacao_cadastral', type: 'string', description: 'Data da situação cadastral no formato YYYY-MM-DD.' },
@@ -49,6 +49,7 @@ export const datasetDetails: Record<DatasetKey, DatasetDetail> = {
       { field: 'porte_empresa', type: 'string', description: 'Porte cadastral da empresa.' },
       { field: 'simples_mei', type: 'campos string', description: 'opcao_simples, data_opcao_simples, opcao_mei e data_opcao_mei.' },
       { field: 'QSA', type: 'array', description: 'Quadro societário, com CPF mascarado quando o sócio é pessoa física.' },
+      { field: 'lgpd_anonimizado', type: 'boolean', description: 'true quando campos pessoais foram anonimizados a pedido do titular (LGPD).' },
     ],
   },
   cno: {

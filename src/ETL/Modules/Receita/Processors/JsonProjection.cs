@@ -2,9 +2,9 @@ namespace CNPJExporter.Modules.Receita.Processors;
 
 internal static class JsonProjection
 {
-    public const string Fields = @"cnpj := UPPER(e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv),
-                    razao_social := COALESCE(emp.razao_social, ''),
-                    nome_fantasia := COALESCE(e.nome_fantasia, ''),
+    public static readonly string Fields = @"cnpj := UPPER(e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv),
+                    razao_social := " + LgpdProjection.RazaoSocial + @",
+                    nome_fantasia := " + LgpdProjection.NomeFantasia + @",
                     situacao_cadastral := CASE LPAD(e.situacao_cadastral, 2, '0')
                         WHEN '01' THEN 'Nula'
                         WHEN '02' THEN 'Ativa'
@@ -56,26 +56,26 @@ internal static class JsonProjection
                     codigo_natureza_juridica := COALESCE(emp.natureza_juridica, ''),
                     natureza_juridica := COALESCE(nat.descricao, ''),
                     tipo_logradouro := COALESCE(e.tipo_logradouro, ''),
-                    logradouro := COALESCE(e.logradouro, ''),
-                    numero := COALESCE(e.numero, ''),
+                    logradouro := " + LgpdProjection.Logradouro + @",
+                    numero := " + LgpdProjection.Numero + @",
                     complemento := COALESCE(e.complemento, ''),
                     bairro := COALESCE(e.bairro, ''),
-                    cep := COALESCE(e.cep, ''),
+                    cep := " + LgpdProjection.Cep + @",
                     uf := COALESCE(e.uf, ''),
                     municipio := COALESCE(mun.descricao, ''),
                     codigo_municipio := COALESCE(e.codigo_municipio, ''),
-                    email := COALESCE(e.correio_eletronico, ''),
+                    email := " + LgpdProjection.Email + @",
                     telefones := list_filter([
                         CASE WHEN e.ddd1 IS NOT NULL OR e.telefone1 IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := COALESCE(e.telefone1, ''), is_fax := false)
+                             THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := " + LgpdProjection.TelefoneNumero("e.telefone1") + @", is_fax := false)
                              ELSE NULL
                         END,
                         CASE WHEN e.ddd2 IS NOT NULL OR e.telefone2 IS NOT NULL  
-                             THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := COALESCE(e.telefone2, ''), is_fax := false)
+                             THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := " + LgpdProjection.TelefoneNumero("e.telefone2") + @", is_fax := false)
                              ELSE NULL
                         END,
                         CASE WHEN e.ddd_fax IS NOT NULL OR e.fax IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := COALESCE(e.fax, ''), is_fax := true)
+                             THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := " + LgpdProjection.TelefoneNumero("e.fax") + @", is_fax := true)
                              ELSE NULL
                         END
                     ], x -> x IS NOT NULL),
@@ -140,5 +140,6 @@ internal static class JsonProjection
                              SUBSTRING(e.data_situacao_especial, 7, 2)
                         ELSE COALESCE(e.data_situacao_especial, '')
                     END,
-                    QSA := COALESCE(sd.qsa_data, [])";
+                    QSA := COALESCE(sd.qsa_data, []),
+                    lgpd_anonimizado := " + LgpdProjection.Flag;
     }

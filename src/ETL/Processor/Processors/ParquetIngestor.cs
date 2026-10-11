@@ -35,7 +35,7 @@ public class ParquetIngestor : IDisposable
             dataDir,
             parquetDir,
             AppConfig.Current.Shards.PrefixLength);
-        _shardQueryBuilder = new ShardQueryBuilder(parquetDir);
+        _shardQueryBuilder = new ShardQueryBuilder(parquetDir, LgpdPolicy.LoadDefault());
 
         _dataSource = AppConfig.Current.DuckDb.UseInMemory ? ":memory:" : "./cnpj.duckdb";
         _connection = new($"Data Source={_dataSource}");

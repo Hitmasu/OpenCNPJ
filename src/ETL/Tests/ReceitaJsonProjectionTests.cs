@@ -19,7 +19,7 @@ public sealed class ReceitaJsonProjectionTests
             CreatePartitionMarker(parquetDir, "estabelecimento", "607");
             CreatePartitionMarker(parquetDir, "empresa", "607");
 
-            var query = new ShardQueryBuilder(parquetDir)
+            var query = new ShardQueryBuilder(parquetDir, LgpdPolicy.Empty)
                 .BuildJsonQueryForPrefixBatch(["607"], includeCnpjColumn: true, jsonAlias: "json_data");
 
             Assert.IsFalse(
@@ -45,7 +45,7 @@ public sealed class ReceitaJsonProjectionTests
             CreatePartitionMarker(parquetDir, "empresa", "607");
             CreatePartitionMarker(parquetDir, "socio", "607");
 
-            var query = new ShardQueryBuilder(parquetDir)
+            var query = new ShardQueryBuilder(parquetDir, LgpdPolicy.Empty)
                 .BuildJsonQueryForCnpj("607", "60701190", "0001", "04", "json_output");
 
             StringAssert.Contains(query, "s.cnpj_basico = '60701190'");
@@ -70,7 +70,7 @@ public sealed class ReceitaJsonProjectionTests
             CreatePartitionMarker(parquetDir, "simples", "607");
             CreatePartitionMarker(parquetDir, "socio", "607");
 
-            var query = new ShardQueryBuilder(parquetDir)
+            var query = new ShardQueryBuilder(parquetDir, LgpdPolicy.Empty)
                 .BuildJsonQueryForPrefixBatch(
                     ["607"],
                     includeCnpjColumn: true,
@@ -104,7 +104,7 @@ public sealed class ReceitaJsonProjectionTests
             CreatePartitionMarker(parquetDir, "socio", "607");
             CreatePartitionMarker(parquetDir, "qsa", "607");
 
-            var query = new ShardQueryBuilder(parquetDir)
+            var query = new ShardQueryBuilder(parquetDir, LgpdPolicy.Empty)
                 .BuildJsonQueryForPrefixBatch(
                     ["607"],
                     includeCnpjColumn: true,
@@ -138,7 +138,7 @@ public sealed class ReceitaJsonProjectionTests
             await connection.OpenAsync();
             await SeedReceitaProjectionDataAsync(connection, parquetDir);
 
-            var query = new ShardQueryBuilder(parquetDir)
+            var query = new ShardQueryBuilder(parquetDir, LgpdPolicy.Empty)
                 .BuildJsonQueryForCnpj("607", "60701190", "0001", "04", "json_output");
 
             await using var cmd = connection.CreateCommand();
@@ -189,6 +189,136 @@ public sealed class ReceitaJsonProjectionTests
             if (Directory.Exists(tempRoot))
                 Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    [TestMethod]
+    public async Task BuildJsonQueryForPrefixBatch_ShouldAnonymizeLgpdListedCnpjAndStripMeiCpf()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-receita-lgpd-{Guid.NewGuid():N}");
+        var parquetDir = Path.Combine(tempRoot, "parquet");
+        var policyPath = Path.Combine(tempRoot, "lgpd.json");
+        Directory.CreateDirectory(parquetDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(policyPath, """
+                { "11.122.233/0001-81": ["razao_social", "nome_fantasia", "endereco", "email", "telefones"] }
+                """);
+
+            await using var connection = new DuckDBConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            await SeedMeiDataAsync(connection, parquetDir);
+
+            var query = new ShardQueryBuilder(parquetDir, LgpdPolicy.Load(policyPath))
+                .BuildJsonQueryForPrefixBatch(["111"], includeCnpjColumn: true, jsonAlias: "json_data");
+
+            var payloads = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+            await using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = query;
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                    payloads[reader.GetString(1)] = JsonDocument.Parse(reader.GetString(2)).RootElement.Clone();
+            }
+
+            var listed = payloads["11122233000181"];
+            Assert.AreEqual("FULANO B******", listed.GetProperty("razao_social").GetString());
+            Assert.AreEqual("FULANO S******", listed.GetProperty("nome_fantasia").GetString());
+            Assert.AreEqual("F*******@EXAMPLE.COM", listed.GetProperty("email").GetString());
+            Assert.AreEqual("", listed.GetProperty("logradouro").GetString());
+            Assert.AreEqual("", listed.GetProperty("numero").GetString());
+            Assert.AreEqual("", listed.GetProperty("cep").GetString());
+            Assert.AreEqual("RUA", listed.GetProperty("tipo_logradouro").GetString());
+            Assert.AreEqual("CENTRO", listed.GetProperty("bairro").GetString());
+            Assert.AreEqual("SP", listed.GetProperty("uf").GetString());
+            var telefone = listed.GetProperty("telefones")[0];
+            Assert.AreEqual("34", telefone.GetProperty("ddd").GetString());
+            Assert.AreEqual("90000000", telefone.GetProperty("numero").GetString());
+            Assert.IsTrue(listed.GetProperty("lgpd_anonimizado").GetBoolean());
+
+            var notListed = payloads["11122244000100"];
+            Assert.AreEqual("CICLANO DE TAL", notListed.GetProperty("razao_social").GetString());
+            Assert.AreEqual("CICLANO SERVICOS", notListed.GetProperty("nome_fantasia").GetString());
+            Assert.AreEqual("CICLANO@EXAMPLE.COM", notListed.GetProperty("email").GetString());
+            Assert.AreEqual("EXEMPLO", notListed.GetProperty("logradouro").GetString());
+            Assert.AreEqual("100", notListed.GetProperty("numero").GetString());
+            Assert.AreEqual("01310100", notListed.GetProperty("cep").GetString());
+            Assert.AreEqual("98765432", notListed.GetProperty("telefones")[0].GetProperty("numero").GetString());
+            Assert.IsFalse(notListed.GetProperty("lgpd_anonimizado").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private static async Task SeedMeiDataAsync(DuckDBConnection connection, string parquetDir)
+    {
+        await ExecuteAsync(connection, """
+            CREATE TABLE natureza(codigo VARCHAR, descricao VARCHAR);
+            INSERT INTO natureza VALUES ('2135', 'Empresário (Individual)');
+            CREATE TABLE municipio(codigo VARCHAR, descricao VARCHAR);
+            CREATE TABLE motivo(codigo VARCHAR, descricao VARCHAR);
+            CREATE TABLE pais(codigo VARCHAR, descricao VARCHAR);
+            CREATE TABLE qualificacao(codigo VARCHAR, descricao VARCHAR);
+            CREATE TABLE cnae(codigo VARCHAR, descricao VARCHAR);
+            """);
+
+        await CopyPartitionedAsync(connection, parquetDir, "estabelecimento", """
+            SELECT
+                '111' AS cnpj_prefix,
+                cnpj_basico,
+                '0001' AS cnpj_ordem,
+                cnpj_dv,
+                '1' AS identificador_matriz_filial,
+                nome_fantasia,
+                '02' AS situacao_cadastral,
+                '20240115' AS data_situacao_cadastral,
+                '00' AS motivo_situacao_cadastral,
+                '' AS nome_cidade_exterior,
+                '' AS codigo_pais,
+                '20240115' AS data_inicio_atividade,
+                '9511800' AS cnae_principal,
+                '' AS cnaes_secundarios,
+                'RUA' AS tipo_logradouro,
+                'EXEMPLO' AS logradouro,
+                '100' AS numero,
+                '' AS complemento,
+                'CENTRO' AS bairro,
+                '01310100' AS cep,
+                'SP' AS uf,
+                '7107' AS codigo_municipio,
+                '34' AS ddd1,
+                '98765432' AS telefone1,
+                CAST(NULL AS VARCHAR) AS ddd2,
+                CAST(NULL AS VARCHAR) AS telefone2,
+                CAST(NULL AS VARCHAR) AS ddd_fax,
+                CAST(NULL AS VARCHAR) AS fax,
+                email AS correio_eletronico,
+                '' AS situacao_especial,
+                '' AS data_situacao_especial
+            FROM (VALUES
+                ('11122233', '81', 'FULANO SOLUCOES', 'FULANOTESTE@EXAMPLE.COM'),
+                ('11122244', '00', 'CICLANO SERVICOS', 'CICLANO@EXAMPLE.COM')
+            ) AS t(cnpj_basico, cnpj_dv, nome_fantasia, email)
+            """);
+
+        await CopyPartitionedAsync(connection, parquetDir, "empresa", """
+            SELECT
+                '111' AS cnpj_prefix,
+                cnpj_basico,
+                razao_social,
+                '2135' AS natureza_juridica,
+                '50' AS qualificacao_responsavel,
+                '5000,00' AS capital_social,
+                '01' AS porte_empresa,
+                '' AS ente_federativo
+            FROM (VALUES
+                ('11122233', 'FULANO BELTRANO DA SILVA 12345678909'),
+                ('11122244', 'CICLANO DE TAL 98765432100')
+            ) AS t(cnpj_basico, razao_social)
+            """);
     }
 
     private static async Task SeedReceitaProjectionDataAsync(DuckDBConnection connection, string parquetDir)

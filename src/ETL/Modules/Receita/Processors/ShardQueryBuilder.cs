@@ -3,10 +3,12 @@ namespace CNPJExporter.Modules.Receita.Processors;
 public sealed class ShardQueryBuilder
 {
     private readonly string _parquetDir;
+    private readonly LgpdPolicy _lgpd;
 
-    public ShardQueryBuilder(string parquetDir)
+    public ShardQueryBuilder(string parquetDir, LgpdPolicy lgpd)
     {
         _parquetDir = parquetDir;
+        _lgpd = lgpd;
     }
 
     public bool HasPartitionData(string tableName, string prefix)
@@ -32,49 +34,6 @@ public sealed class ShardQueryBuilder
     }
 
     public int GetShardCount() => GetExistingShardPrefixes().Count;
-
-    public string? BuildJsonQueryForPrefix(string prefix, bool includeCnpjColumn, string jsonAlias)
-    {
-        if (!HasPartitionData("estabelecimento", prefix))
-            return null;
-
-        var prefixLiteral = Sql.EscapeLiteral(prefix);
-        var prefixes = new[] { prefix };
-        var estabelecimentoRelation = BuildPartitionedReadSql("estabelecimento", prefixes, allowEmpty: false);
-        var empresaRelation = BuildPartitionedReadSql("empresa", prefixes, allowEmpty: false);
-        var simplesRelation = BuildPartitionedReadSql("simples", prefixes, allowEmpty: true);
-        var selectCols = includeCnpjColumn
-            ? "UPPER(e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv) as cnpj, to_json(struct_pack(\n" + JsonProjection.Fields +
-              $"\n)) as {jsonAlias}"
-            : $"to_json(struct_pack(\n" + JsonProjection.Fields + $"\n)) as {jsonAlias}";
-
-        return $@"WITH estabelecimento_data AS (
-                SELECT * FROM {estabelecimentoRelation}
-            ),
-            empresa_data AS (
-                SELECT * FROM {empresaRelation}
-            ),
-            simples_data AS (
-                SELECT * FROM {simplesRelation}
-            ),
-	            cnae_lookup AS (
-	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
-	                FROM cnae
-	            ),
-	            {BuildQsaCte("socios_data", prefixes, prefixLiteral: prefixLiteral)}
-	            SELECT {selectCols}
-	            FROM estabelecimento_data e
-	            CROSS JOIN cnae_lookup
-	            LEFT JOIN empresa_data emp ON e.cnpj_basico = emp.cnpj_basico
-	            LEFT JOIN simples_data s ON e.cnpj_basico = s.cnpj_basico
-	            LEFT JOIN natureza nat ON emp.natureza_juridica = nat.codigo
-	            LEFT JOIN municipio mun ON e.codigo_municipio = mun.codigo
-	            LEFT JOIN motivo mot ON e.motivo_situacao_cadastral = mot.codigo
-	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
-	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
-	            LEFT JOIN socios_data sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
-	            WHERE e.cnpj_prefix = '{prefixLiteral}'";
-    }
 
     public string BuildJsonQueryForPrefixBatch(
         IReadOnlyList<string> prefixes,
@@ -107,6 +66,7 @@ public sealed class ShardQueryBuilder
 	            batch_simples AS (
 	                SELECT * FROM {simplesRelation}{cnpjBasicoWhere}
 	            ),
+	            {_lgpd.BuildCte()},
 	            cnae_lookup AS (
 	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
 	                FROM cnae
@@ -122,7 +82,8 @@ public sealed class ShardQueryBuilder
 	            LEFT JOIN motivo mot ON e.motivo_situacao_cadastral = mot.codigo
 	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
 	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
-	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico";
+	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
+	            {LgpdProjection.Join}";
     }
 
     public string BuildColumnarQueryForPrefixBatch(IReadOnlyList<string> prefixes)
@@ -140,6 +101,7 @@ public sealed class ShardQueryBuilder
 	            batch_simples AS (
 	                SELECT * FROM {simplesRelation}
 	            ),
+	            {_lgpd.BuildCte()},
 	            cnae_lookup AS (
 	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
 	                FROM cnae
@@ -148,8 +110,8 @@ public sealed class ShardQueryBuilder
 	            SELECT
                     UPPER(e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv) AS cnpj,
                     UPPER(e.cnpj_prefix) AS cnpj_prefix,
-                    COALESCE(emp.razao_social, '') AS razao_social,
-                    COALESCE(e.nome_fantasia, '') AS nome_fantasia,
+                    {LgpdProjection.RazaoSocial} AS razao_social,
+                    {LgpdProjection.NomeFantasia} AS nome_fantasia,
                     CASE LPAD(e.situacao_cadastral, 2, '0')
                         WHEN '01' THEN 'Nula'
                         WHEN '02' THEN 'Ativa'
@@ -201,26 +163,26 @@ public sealed class ShardQueryBuilder
                     COALESCE(emp.natureza_juridica, '') AS codigo_natureza_juridica,
                     COALESCE(nat.descricao, '') AS natureza_juridica,
                     COALESCE(e.tipo_logradouro, '') AS tipo_logradouro,
-                    COALESCE(e.logradouro, '') AS logradouro,
-                    COALESCE(e.numero, '') AS numero,
+                    {LgpdProjection.Logradouro} AS logradouro,
+                    {LgpdProjection.Numero} AS numero,
                     COALESCE(e.complemento, '') AS complemento,
                     COALESCE(e.bairro, '') AS bairro,
-                    COALESCE(e.cep, '') AS cep,
+                    {LgpdProjection.Cep} AS cep,
                     COALESCE(e.uf, '') AS uf,
                     COALESCE(mun.descricao, '') AS municipio,
                     COALESCE(e.codigo_municipio, '') AS codigo_municipio,
-                    COALESCE(e.correio_eletronico, '') AS email,
+                    {LgpdProjection.Email} AS email,
                     list_filter([
                         CASE WHEN e.ddd1 IS NOT NULL OR e.telefone1 IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := COALESCE(e.telefone1, ''), is_fax := false)
+                             THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := {LgpdProjection.TelefoneNumero("e.telefone1")}, is_fax := false)
                              ELSE NULL
                         END,
                         CASE WHEN e.ddd2 IS NOT NULL OR e.telefone2 IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := COALESCE(e.telefone2, ''), is_fax := false)
+                             THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := {LgpdProjection.TelefoneNumero("e.telefone2")}, is_fax := false)
                              ELSE NULL
                         END,
                         CASE WHEN e.ddd_fax IS NOT NULL OR e.fax IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := COALESCE(e.fax, ''), is_fax := true)
+                             THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := {LgpdProjection.TelefoneNumero("e.fax")}, is_fax := true)
                              ELSE NULL
                         END
                     ], telefone -> telefone IS NOT NULL) AS telefones,
@@ -308,7 +270,8 @@ public sealed class ShardQueryBuilder
                             faixa_etaria := socio.faixa_etaria
                         )),
                         []
-                    ) AS QSA
+                    ) AS QSA,
+                    {LgpdProjection.Flag} AS lgpd_anonimizado
 	            FROM batch_estabelecimentos e
 	            CROSS JOIN cnae_lookup
 	            LEFT JOIN batch_empresas emp ON e.cnpj_basico = emp.cnpj_basico
@@ -318,7 +281,8 @@ public sealed class ShardQueryBuilder
 	            LEFT JOIN motivo mot ON e.motivo_situacao_cadastral = mot.codigo
 	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
 	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
-	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico";
+	            LEFT JOIN batch_socios sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
+	            {LgpdProjection.Join}";
     }
 
     public string BuildJsonQueryForCnpj(
@@ -347,6 +311,7 @@ public sealed class ShardQueryBuilder
             simples_data AS (
                 SELECT * FROM {simplesRelation}
             ),
+	            {_lgpd.BuildCte()},
 	            cnae_lookup AS (
 	                SELECT map_from_entries(array_agg(struct_pack(key := codigo, value := descricao))) AS descricoes
 	                FROM cnae
@@ -363,6 +328,7 @@ public sealed class ShardQueryBuilder
 	            LEFT JOIN pais pais_est ON e.codigo_pais = pais_est.codigo
 	            LEFT JOIN qualificacao qr ON emp.qualificacao_responsavel = qr.codigo
 	            LEFT JOIN socios_data sd ON e.cnpj_prefix = sd.cnpj_prefix AND e.cnpj_basico = sd.cnpj_basico
+	            {LgpdProjection.Join}
 	            WHERE e.cnpj_prefix = '{prefixLiteral}'
               AND e.cnpj_basico = '{cnpjBasicoLiteral}'
               AND e.cnpj_ordem = '{cnpjOrdemLiteral}'

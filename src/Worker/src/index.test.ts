@@ -993,6 +993,7 @@ test("fetch returns JSON Schema 2020-12 on /schema", async () => {
   assert.equal(properties.cnpj?.type, "string");
   assert.equal(properties.updated_at?.type, "string");
   assert.equal(properties.codigo_natureza_juridica?.type, "string");
+  assert.equal(properties.lgpd_anonimizado?.type, "boolean");
   assert.deepEqual(
     properties.rntrc?.oneOf,
     [
