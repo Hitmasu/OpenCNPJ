@@ -45,7 +45,7 @@ RUN set -eux; \
     install -m 0755 "/tmp/rclone-v${RCLONE_VERSION}-linux-${rclone_arch}/rclone" /usr/local/bin/rclone; \
     ln -sf /usr/local/bin/rclone /usr/bin/rclone; \
     rm -rf "/tmp/${archive}" "/tmp/rclone-v${RCLONE_VERSION}-linux-${rclone_arch}"; \
-    rclone version
+    env -u RCLONE_VERSION rclone version
 
 WORKDIR /app
 
