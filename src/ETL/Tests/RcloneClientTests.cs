@@ -149,4 +149,75 @@ public class RcloneClientTests
 
         Assert.AreEqual(executable, RcloneClient.ResolveExecutableForTest(executable));
     }
+
+    [TestMethod]
+    public async Task RunRcloneCommand_WhenProcessExits_ReturnsExitCode()
+    {
+        var (executable, arguments) = GetShellCommand("exit 7");
+        var result = await RcloneClient.RunRcloneCommandForTestAsync(
+            executable, arguments, TimeSpan.FromSeconds(5));
+
+        Assert.AreEqual(7, result.ExitCode);
+        Assert.IsFalse(result.TimedOut);
+    }
+
+    [TestMethod]
+    public async Task RunRcloneCommand_WhenTimeoutExpires_StopsProcessAndReturnsFailure()
+    {
+        var (executable, arguments) = GetShellCommand(OperatingSystem.IsWindows()
+            ? "ping -n 30 127.0.0.1 > nul"
+            : "sleep 30");
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var result = await RcloneClient.RunRcloneCommandForTestAsync(
+            executable, arguments, TimeSpan.FromMilliseconds(200));
+
+        Assert.AreEqual(-1, result.ExitCode);
+        Assert.IsTrue(result.TimedOut);
+        StringAssert.Contains(result.Error, "timeout");
+        Assert.IsTrue(started.Elapsed < TimeSpan.FromSeconds(12),
+            "Process execution and cleanup should be bounded.");
+    }
+
+    [TestMethod]
+    public async Task RunRcloneCommand_WhenCanceled_PropagatesCancellation()
+    {
+        var (executable, arguments) = GetShellCommand(OperatingSystem.IsWindows()
+            ? "ping -n 30 127.0.0.1 > nul"
+            : "sleep 30");
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+
+        try
+        {
+            await RcloneClient.RunRcloneCommandForTestAsync(
+                executable, arguments, TimeSpan.FromSeconds(20), cancellation.Token);
+            Assert.Fail("Expected cancellation to propagate.");
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is not a retryable timeout.
+        }
+    }
+
+    [TestMethod]
+    public async Task RunRcloneCommand_WhenAlreadyCanceled_DoesNotStartProcess()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        try
+        {
+            await RcloneClient.RunRcloneCommandForTestAsync(
+                "not-a-real-rclone-executable", "", TimeSpan.FromSeconds(5), cancellation.Token);
+            Assert.Fail("Expected the pre-canceled token to be honored before Process.Start.");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private static (string Executable, string Arguments) GetShellCommand(string command) =>
+        OperatingSystem.IsWindows()
+            ? ("cmd.exe", $"/d /c \"{command}\"")
+            : ("/bin/sh", $"-c \"{command}\"");
 }

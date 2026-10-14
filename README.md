@@ -42,8 +42,11 @@ O arquivo principal de configuração do ETL é `src/ETL/Processor/config.json`.
 | `BufferSize` | string | `16M` | Valor de `--buffer-size` usado no rclone. Se ausente ou vazio, o ETL usa `16M`. |
 | `UploadVerificationRetries` | int | `3` | Número de tentativas de upload com verificação de contagem/hash remoto. O ETL usa no mínimo `1`. |
 | `UploadVerificationDelaySeconds` | int | `15` | Espera, em segundos, entre tentativas de verificação/upload. O ETL usa no mínimo `1`. |
+| `CommandTimeoutSeconds` | int | `21600` (6 horas) | Tempo máximo, em segundos, de **cada** subprocesso do rclone no ETL (transferência ou verificação). Deve ser maior que zero. |
 
 `Rclone.Executable` escolhe o binário do rclone. `Rclone.RemoteBase` escolhe o remote e o destino dentro do storage. São configurações diferentes.
+
+`Rclone.CommandTimeoutSeconds` limita cada execução externa do rclone no cliente .NET. Em caso de timeout, o processo e seus filhos são encerrados; operações de upload com verificação seguem o fluxo de retry já existente. Cancelamentos explícitos interrompem a operação sem retry. Para transferências grandes, ajuste o limite ao volume e à velocidade da conexão. O limite não se aplica aos comandos rclone chamados diretamente pelos scripts shell de deploy/entrypoint.
 
 Quando o rclone está no `PATH`, mantenha:
 

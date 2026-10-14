@@ -12,7 +12,8 @@
     "MaxConcurrentUploads": 1,
     "BufferSize": "16M",
     "UploadVerificationRetries": 3,
-    "UploadVerificationDelaySeconds": 15
+    "UploadVerificationDelaySeconds": 15,
+    "CommandTimeoutSeconds": 21600
   },
   "DuckDb": {
     "UseInMemory": false,
