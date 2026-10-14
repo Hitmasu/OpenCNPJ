@@ -70,7 +70,8 @@ public static class RcloneClient
                 if (result.ExitCode == 0 && uploadComplete)
                     return true;
 
-                if (uploadComplete)
+                // A timed-out process must not be considered successful based on file count alone.
+                if (uploadComplete && !result.TimedOut)
                 {
                     AnsiConsole.MarkupLine("[yellow]⚠️ rclone reportou erro transitório, mas o release remoto ficou completo. Prosseguindo.[/]");
                     return true;
@@ -144,7 +145,8 @@ public static class RcloneClient
                     if (result.ExitCode == 0 && remaining == 0)
                         return true;
 
-                    if (remaining == 0)
+                    // A timeout is always retryable, even when remote listing looks complete.
+                    if (remaining == 0 && !result.TimedOut)
                     {
                         AnsiConsole.MarkupLine("[yellow]⚠️ rclone reportou erro transitório, mas todos os arquivos selecionados chegaram ao destino. Prosseguindo.[/]");
                         return true;
