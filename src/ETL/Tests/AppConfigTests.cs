@@ -1,4 +1,5 @@
 using CNPJExporter.Configuration;
+using CNPJExporter.Exporters;
 using CnoIntegrationOptions = CNPJExporter.Modules.Cno.Configuration.IntegrationOptions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using RntrcIntegrationOptions = CNPJExporter.Modules.Rntrc.Configuration.IntegrationOptions;
@@ -45,6 +46,21 @@ public sealed class AppConfigTests
         var settings = new AppConfig.RcloneSettings();
 
         Assert.AreEqual("rclone", settings.Executable);
+    }
+
+    [TestMethod]
+    public void RcloneTimeout_ShouldHaveFinitePositiveDefault()
+    {
+        var settings = new AppConfig.RcloneSettings();
+        Assert.AreEqual(21_600, settings.CommandTimeoutSeconds);
+        Assert.AreEqual(TimeSpan.FromHours(6), RcloneClient.ResolveCommandTimeoutForTest(settings.CommandTimeoutSeconds));
+    }
+
+    [TestMethod]
+    public void RcloneTimeout_ShouldRejectInvalidValues()
+    {
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => RcloneClient.ResolveCommandTimeoutForTest(0));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => RcloneClient.ResolveCommandTimeoutForTest(-1));
     }
 
     [TestMethod]

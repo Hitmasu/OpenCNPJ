@@ -19,14 +19,31 @@ public static class RcloneClient
     private static string BufferSize => NormalizeBufferSize(AppConfig.Current.Rclone.BufferSize);
     private static int UploadVerificationRetries => Math.Max(1, AppConfig.Current.Rclone.UploadVerificationRetries);
     private static TimeSpan UploadVerificationDelay => TimeSpan.FromSeconds(Math.Max(1, AppConfig.Current.Rclone.UploadVerificationDelaySeconds));
+    private static TimeSpan CommandTimeout => ResolveCommandTimeout(AppConfig.Current.Rclone.CommandTimeoutSeconds);
 
-    public static async Task<bool> UploadFolderAsync(
+    public static Task<bool> UploadFolderAsync(
         string localFolderPath,
         string? remoteRelativePath = null,
         ProgressTask? progressTask = null,
+        params string[] includePatterns) =>
+        UploadFolderCoreAsync(localFolderPath, remoteRelativePath, progressTask, CancellationToken.None, includePatterns);
+
+    public static Task<bool> UploadFolderAsync(
+        CancellationToken cancellationToken,
+        string localFolderPath,
+        string? remoteRelativePath = null,
+        ProgressTask? progressTask = null,
+        params string[] includePatterns) =>
+        UploadFolderCoreAsync(localFolderPath, remoteRelativePath, progressTask, cancellationToken, includePatterns);
+
+    private static async Task<bool> UploadFolderCoreAsync(
+        string localFolderPath,
+        string? remoteRelativePath,
+        ProgressTask? progressTask,
+        CancellationToken cancellationToken,
         params string[] includePatterns)
     {
-        await UploadSemaphore.WaitAsync();
+        await UploadSemaphore.WaitAsync(cancellationToken);
         try
         {
             var remote = string.IsNullOrWhiteSpace(remoteRelativePath)
@@ -46,14 +63,15 @@ public static class RcloneClient
                               $"--bwlimit=off " +
                               $"--retries=-1 --retries-sleep=60s --low-level-retries=10";
 
-                var result = await RunRcloneCommandAsync(command, progressTask);
-                var remoteFileCount = await CountRemoteFilesAsync(remote, includePatterns);
+                var result = await RunRcloneCommandAsync(command, progressTask, cancellationToken);
+                var remoteFileCount = await CountRemoteFilesAsync(remote, includePatterns, cancellationToken);
                 var uploadComplete = IsUploadComplete(localFileCount, remoteFileCount);
 
                 if (result.ExitCode == 0 && uploadComplete)
                     return true;
 
-                if (uploadComplete)
+                // A timed-out process must not be considered successful based on file count alone.
+                if (uploadComplete && !result.TimedOut)
                 {
                     AnsiConsole.MarkupLine("[yellow]⚠️ rclone reportou erro transitório, mas o release remoto ficou completo. Prosseguindo.[/]");
                     return true;
@@ -67,11 +85,15 @@ public static class RcloneClient
                 if (attempt < UploadVerificationRetries)
                 {
                     AnsiConsole.MarkupLine($"[yellow]Tentando novamente o upload do release em {UploadVerificationDelay.TotalSeconds:0}s...[/]");
-                    await Task.Delay(UploadVerificationDelay);
+                    await Task.Delay(UploadVerificationDelay, cancellationToken);
                 }
             }
 
             return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -88,18 +110,20 @@ public static class RcloneClient
         string localFolderPath,
         string remoteRelativePath,
         IReadOnlyCollection<string> relativeFiles,
-        ProgressTask? progressTask = null)
+        ProgressTask? progressTask = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (relativeFiles.Count == 0)
             return true;
 
-        await UploadSemaphore.WaitAsync();
+        await UploadSemaphore.WaitAsync(cancellationToken);
         try
         {
             var remote = RemoteBase + "/" + remoteRelativePath.Trim('/');
             var filesFromPath = Path.Combine(Path.GetTempPath(), $"opencnpj-rclone-files-{Guid.NewGuid():N}.txt");
             var selectedFiles = BuildSelectedUploadFiles(relativeFiles);
-            await File.WriteAllLinesAsync(filesFromPath, selectedFiles);
+            await File.WriteAllLinesAsync(filesFromPath, selectedFiles, cancellationToken);
 
             try
             {
@@ -114,14 +138,15 @@ public static class RcloneClient
                                   $"--bwlimit=off " +
                                   $"--retries=-1 --retries-sleep=60s --low-level-retries=10";
 
-                    var result = await RunRcloneCommandAsync(command, progressTask);
-                    var remoteHashes = await ListSelectedRemoteChecksumsAsync(remoteRelativePath, filesFromPath);
+                    var result = await RunRcloneCommandAsync(command, progressTask, cancellationToken);
+                    var remoteHashes = await ListSelectedRemoteChecksumsAsync(remoteRelativePath, filesFromPath, cancellationToken);
                     var remaining = selectedFiles.Count(path => !remoteHashes.ContainsKey(NormalizeRelativePath(path)));
 
                     if (result.ExitCode == 0 && remaining == 0)
                         return true;
 
-                    if (remaining == 0)
+                    // A timeout is always retryable, even when remote listing looks complete.
+                    if (remaining == 0 && !result.TimedOut)
                     {
                         AnsiConsole.MarkupLine("[yellow]⚠️ rclone reportou erro transitório, mas todos os arquivos selecionados chegaram ao destino. Prosseguindo.[/]");
                         return true;
@@ -140,7 +165,7 @@ public static class RcloneClient
                     if (attempt < UploadVerificationRetries)
                     {
                         AnsiConsole.MarkupLine($"[yellow]Tentando novamente o upload seletivo em {UploadVerificationDelay.TotalSeconds:0}s...[/]");
-                        await Task.Delay(UploadVerificationDelay);
+                        await Task.Delay(UploadVerificationDelay, cancellationToken);
                     }
                 }
 
@@ -150,6 +175,10 @@ public static class RcloneClient
             {
                 DeleteIfExists(filesFromPath);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -162,13 +191,25 @@ public static class RcloneClient
         }
     }
 
-    public static async Task<Dictionary<string, string>> ListRemoteChecksumsAsync(
+    public static Task<Dictionary<string, string>> ListRemoteChecksumsAsync(
         string remoteRelativePath,
+        params string[] includePatterns) =>
+        ListRemoteChecksumsCoreAsync(remoteRelativePath, CancellationToken.None, includePatterns);
+
+    public static Task<Dictionary<string, string>> ListRemoteChecksumsAsync(
+        CancellationToken cancellationToken,
+        string remoteRelativePath,
+        params string[] includePatterns) =>
+        ListRemoteChecksumsCoreAsync(remoteRelativePath, cancellationToken, includePatterns);
+
+    private static async Task<Dictionary<string, string>> ListRemoteChecksumsCoreAsync(
+        string remoteRelativePath,
+        CancellationToken cancellationToken,
         params string[] includePatterns)
     {
         var remote = RemoteBase + "/" + remoteRelativePath.Trim('/');
         var result = await RunRcloneCommandAsync(
-            BuildRemoteMd5SumArguments(remote, includePatterns));
+            BuildRemoteMd5SumArguments(remote, includePatterns), cancellationToken: cancellationToken);
 
         if (result.ExitCode != 0)
             return new Dictionary<string, string>(StringComparer.Ordinal);
@@ -199,6 +240,16 @@ public static class RcloneClient
         BuildSelectedUploadFiles(relativeFiles);
 
     internal static string ResolveExecutableForTest(string? executable) => ResolveExecutable(executable);
+
+    internal static TimeSpan ResolveCommandTimeoutForTest(int seconds) => ResolveCommandTimeout(seconds);
+
+    private static TimeSpan ResolveCommandTimeout(int seconds)
+    {
+        if (seconds <= 0)
+            throw new ArgumentOutOfRangeException(nameof(seconds), "Rclone.CommandTimeoutSeconds deve ser maior que zero.");
+
+        return TimeSpan.FromSeconds(seconds);
+    }
 
     private static string ResolveExecutable(string? executable) =>
         string.IsNullOrWhiteSpace(executable) ? "rclone" : executable.Trim();
@@ -280,11 +331,12 @@ public static class RcloneClient
 
     private static async Task<Dictionary<string, string>> ListSelectedRemoteChecksumsAsync(
         string remoteRelativePath,
-        string filesFromPath)
+        string filesFromPath,
+        CancellationToken cancellationToken)
     {
         var remote = RemoteBase + "/" + remoteRelativePath.Trim('/');
         var result = await RunRcloneCommandAsync(
-            BuildSelectedRemoteMd5SumArguments(remote, filesFromPath));
+            BuildSelectedRemoteMd5SumArguments(remote, filesFromPath), cancellationToken: cancellationToken);
 
         if (result.ExitCode != 0)
             return new Dictionary<string, string>(StringComparer.Ordinal);
@@ -292,10 +344,13 @@ public static class RcloneClient
         return ParseMd5SumOutput(result.Output);
     }
 
-    private static async Task<int> CountRemoteFilesAsync(string remotePath, IEnumerable<string> includePatterns)
+    private static async Task<int> CountRemoteFilesAsync(
+        string remotePath,
+        IEnumerable<string> includePatterns,
+        CancellationToken cancellationToken)
     {
         var filterArgs = BuildFilterArguments(includePatterns);
-        var result = await RunRcloneCommandAsync($"lsf \"{remotePath}\" {filterArgs}--files-only --recursive");
+        var result = await RunRcloneCommandAsync($"lsf \"{remotePath}\" {filterArgs}--files-only --recursive", cancellationToken: cancellationToken);
         if (result.ExitCode != 0)
             return -1;
 
@@ -314,10 +369,34 @@ public static class RcloneClient
         return new Regex($"^{escaped}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     }
 
-    private static async Task<RcloneCommandResult> RunRcloneCommandAsync(string arguments, ProgressTask? progressTask = null)
+    // A single timeout applies to each rclone subprocess, including remote verification commands.
+    private static Task<RcloneCommandResult> RunRcloneCommandAsync(
+        string arguments,
+        ProgressTask? progressTask = null,
+        CancellationToken cancellationToken = default) =>
+        RunProcessAsync(RcloneExecutable, arguments, CommandTimeout, progressTask, cancellationToken);
+
+    internal static Task<RcloneCommandResult> RunRcloneCommandForTestAsync(
+        string executable,
+        string arguments,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default) =>
+        RunProcessAsync(executable, arguments, timeout, null, cancellationToken);
+
+    private static async Task<RcloneCommandResult> RunProcessAsync(
+        string executable,
+        string arguments,
+        TimeSpan timeout,
+        ProgressTask? progressTask,
+        CancellationToken cancellationToken)
     {
+        if (timeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(timeout), "O timeout do rclone deve ser maior que zero.");
+
+        cancellationToken.ThrowIfCancellationRequested();
+
         using var process = new Process();
-        process.StartInfo.FileName = RcloneExecutable;
+        process.StartInfo.FileName = executable;
         process.StartInfo.Arguments = arguments;
         process.StartInfo.UseShellExecute = false;
         process.StartInfo.RedirectStandardOutput = true;
@@ -352,27 +431,70 @@ public static class RcloneClient
         process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        await process.WaitForExitAsync();
 
+        using var timeoutSource = new CancellationTokenSource(timeout);
+        using var linkedSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
+
+        try
+        {
+            await process.WaitForExitAsync(linkedSource.Token);
+        }
+        catch (OperationCanceledException) when (linkedSource.IsCancellationRequested)
+        {
+            // Canceling WaitForExitAsync alone does not stop the child process.
+            await TerminateProcessTreeAsync(process);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var message = $"Comando rclone excedeu o timeout de {timeout.TotalSeconds:0} segundos.";
+            var standardError = errorBuffer.ToString();
+            if (!string.IsNullOrWhiteSpace(standardError))
+                message += Environment.NewLine + standardError;
+
+            AnsiConsole.MarkupLine($"[yellow]{message.EscapeMarkup()}[/]");
+            return new RcloneCommandResult(-1, outputBuffer.ToString(), message, TimedOut: true);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
         return new RcloneCommandResult(process.ExitCode, outputBuffer.ToString(), errorBuffer.ToString());
     }
 
-    public static async Task<bool> DownloadFileAsync(string remoteRelativePath, string localFilePath)
+    private static async Task TerminateProcessTreeAsync(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+            // The process may have exited between HasExited and Kill.
+        }
+
+        // Bound cleanup as well; a descendant may retain redirected pipe handles.
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    public static Task<bool> DownloadFileAsync(
+        string remoteRelativePath,
+        string localFilePath,
+        CancellationToken cancellationToken = default)
     {
         var remote = RemoteBase + "/" + remoteRelativePath.TrimStart('/');
-        return await CopyToAsync(remote, localFilePath);
+        return CopyToAsync(remote, localFilePath, cancellationToken);
     }
 
     public static async Task<bool> DownloadFolderAsync(
         string remoteRelativePath,
-        string localFolderPath)
+        string localFolderPath,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             Directory.CreateDirectory(localFolderPath);
             var remote = RemoteBase + "/" + remoteRelativePath.Trim('/');
             var result = await RunRcloneCommandAsync(
-                $"copy \"{remote}\" \"{localFolderPath}\" --checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off");
+                $"copy \"{remote}\" \"{localFolderPath}\" --checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off", cancellationToken: cancellationToken);
             if (result.ExitCode == 0)
                 return true;
 
@@ -384,6 +506,10 @@ public static class RcloneClient
 
             return false;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine(
@@ -392,12 +518,16 @@ public static class RcloneClient
         }
     }
 
-    public static async Task<bool> CopyToAsync(string remotePath, string localFilePath)
+    public static async Task<bool> CopyToAsync(
+        string remotePath,
+        string localFilePath,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             var result = await RunRcloneCommandAsync(
-                $"copyto \"{remotePath}\" \"{localFilePath}\" --checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off");
+                $"copyto \"{remotePath}\" \"{localFilePath}\" --checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off", cancellationToken: cancellationToken);
 
             var ok = result.ExitCode == 0 && File.Exists(localFilePath);
             if (!ok && !string.IsNullOrWhiteSpace(result.Error))
@@ -406,6 +536,10 @@ public static class RcloneClient
             }
             return ok;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[yellow]⚠️ Erro no rclone copyto: {ex.Message.EscapeMarkup()}[/]");
@@ -413,13 +547,17 @@ public static class RcloneClient
         }
     }
 
-    public static async Task<bool> UploadFileAsync(string localFilePath, string remoteRelativePath)
+    public static async Task<bool> UploadFileAsync(
+        string localFilePath,
+        string remoteRelativePath,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             var remotePath = RemoteBase + "/" + remoteRelativePath.TrimStart('/');
             var result = await RunRcloneCommandAsync(
-                $"copyto \"{localFilePath}\" \"{remotePath}\" --checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off --no-update-modtime");
+                $"copyto \"{localFilePath}\" \"{remotePath}\" --checksum --retries=-1 --retries-sleep=60s --low-level-retries=10 --bwlimit=off --no-update-modtime", cancellationToken: cancellationToken);
 
             var ok = result.ExitCode == 0;
             if (!ok && !string.IsNullOrWhiteSpace(result.Error))
@@ -428,6 +566,10 @@ public static class RcloneClient
             }
             return ok;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             AnsiConsole.MarkupLine($"[yellow]⚠️ Erro no rclone upload file: {ex.Message.EscapeMarkup()}[/]");
@@ -435,7 +577,7 @@ public static class RcloneClient
         }
     }
 
-    private sealed record RcloneCommandResult(int ExitCode, string Output, string Error);
+    internal sealed record RcloneCommandResult(int ExitCode, string Output, string Error, bool TimedOut = false);
 
     private static void DeleteIfExists(string path)
     {

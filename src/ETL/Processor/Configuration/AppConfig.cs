@@ -34,6 +34,7 @@ public class AppConfig
         public string BufferSize { get; set; } = "16M";
         public int UploadVerificationRetries { get; set; } = 3;
         public int UploadVerificationDelaySeconds { get; set; } = 15;
+        public int CommandTimeoutSeconds { get; set; } = 21_600;
     }
 
     public class DuckDbSettings
