@@ -13,4 +13,5 @@ internal sealed record ReleaseInfoPublication(
     string PublicationReleaseId,
     ZipArtifactPublication BaseZip,
     IReadOnlyList<DataIntegrationRunSummary> IntegrationSummaries,
-    IReadOnlyDictionary<string, ModuleShardPublication> ModuleShards);
+    IReadOnlyDictionary<string, ModuleShardPublication> ModuleShards,
+    string? SourceSnapshotMonth = null);

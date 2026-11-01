@@ -6,4 +6,5 @@ internal sealed record PublishedInfoSnapshot(
     string? LastUpdated,
     string? StorageReleaseId,
     PublishedZipArtifactSnapshot BaseZip,
-    IReadOnlyDictionary<string, PublishedModuleShardSnapshot> ModuleShards);
+    IReadOnlyDictionary<string, PublishedModuleShardSnapshot> ModuleShards,
+    string? ReceitaSourceSnapshotMonth = null);

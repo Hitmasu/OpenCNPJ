@@ -450,6 +450,74 @@ public sealed class DataIntegrationOrchestratorTests
         }
     }
 
+    [TestMethod]
+    public async Task RunAsync_ShouldKeepPublishedResult_WhenIntegrationFails()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-integration-test-{Guid.NewGuid():N}");
+        var parquetPath = Path.Combine(tempRoot, "parquet", "integrations", "cno", "cno.parquet");
+        Directory.CreateDirectory(Path.GetDirectoryName(parquetPath)!);
+        await File.WriteAllTextAsync(parquetPath, "placeholder");
+        var paths = new DataIntegrationPaths(
+            Path.Combine(tempRoot, "data"),
+            Path.Combine(tempRoot, "parquet"),
+            Path.Combine(tempRoot, "output"),
+            Path.Combine(tempRoot, "downloads"));
+        var descriptor = new DataIntegrationDescriptor("cno", "cno", TimeSpan.FromHours(1), "2");
+        var stateStore = new FakeStateStore(new DataIntegrationHashState(
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["00000000000000"] = "published"
+            },
+            "published-source",
+            DateTimeOffset.UtcNow.AddDays(-2),
+            parquetPath,
+            "2"));
+        var integration = new FailingIntegration(descriptor);
+
+        try
+        {
+            var orchestrator = new DataIntegrationOrchestrator(
+                [integration],
+                stateStore,
+                new Dictionary<string, DataIntegrationPublishedState>(StringComparer.Ordinal)
+                {
+                    ["cno"] = new("published-source", DateTimeOffset.UtcNow.AddDays(-2), "2")
+                });
+
+            var summary = (await orchestrator.RunAsync("2026-03", paths)).Single();
+
+            Assert.AreEqual(1, integration.RunCount);
+            Assert.AreEqual("published-source", summary.SourceVersion);
+            Assert.AreEqual(parquetPath, summary.ParquetGlob);
+            Assert.AreEqual(0, summary.ChangedCnpjs.Count);
+            Assert.IsFalse(summary.ShouldPersistState, "Falha da fonte não pode gravar estado novo.");
+
+            var withoutPublishedResult = new DataIntegrationOrchestrator([integration], stateStore);
+            await Assert.ThrowsExceptionAsync<InvalidDataException>(
+                () => withoutPublishedResult.RunAsync("2026-03", paths));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class FailingIntegration(DataIntegrationDescriptor descriptor) : IDataIntegration
+    {
+        public int RunCount { get; private set; }
+
+        public DataIntegrationDescriptor Descriptor => descriptor;
+
+        public Task<DataIntegrationRunResult> RunAsync(
+            DataIntegrationRunContext context,
+            CancellationToken cancellationToken = default)
+        {
+            RunCount++;
+            throw new InvalidDataException("End of Central Directory record could not be found.");
+        }
+    }
+
     private sealed class FakeIntegration(
         DataIntegrationDescriptor descriptor,
         DataIntegrationRunResult result) : IDataIntegration

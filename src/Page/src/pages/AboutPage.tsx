@@ -1,22 +1,7 @@
 import { GitHubIcon } from '../components/Icons';
 import { SectionHeading } from '../components/SectionHeading';
 
-function reverse(value: string) {
-  return value.split('').reverse().join('');
-}
-
-function buildContactAddress() {
-  const mailbox = reverse('otatnoc');
-  const domain = reverse('gro.jpncnepo');
-
-  return `${mailbox}@${domain}`;
-}
-
 export function AboutPage() {
-  function handleContactClick() {
-    window.location.href = `mailto:${buildContactAddress()}`;
-  }
-
   return (
     <article className="doc-page">
       <SectionHeading
@@ -114,18 +99,14 @@ export function AboutPage() {
       <section className="doc-section">
         <h2>Contato</h2>
         <p>
-          Para dúvidas públicas, sugestões, problemas na documentação ou pedidos que podem ajudar outras pessoas, prefira
-          abrir uma issue no GitHub. Se o assunto precisar ser tratado diretamente, envie um e-mail para o contato do projeto.
+          Para dúvidas públicas, sugestões, problemas na documentação ou pedidos que podem ajudar outras pessoas, abra
+          uma issue no GitHub.
         </p>
-        <div className="contact-line">
-          <span>contato [arroba] opencnpj [ponto] org</span>
-        </div>
         <div className="actions">
           <a className="btn" href="https://github.com/Hitmasu/opencnpj/issues" target="_blank" rel="noopener" aria-label="Abrir issue do OpenCNPJ no GitHub">
             <GitHubIcon />
             Abrir issue
           </a>
-          <button className="btn" type="button" onClick={handleContactClick}>Enviar e-mail</button>
         </div>
       </section>
     </article>

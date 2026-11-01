@@ -201,6 +201,7 @@
                       "datasets": {
                         "receita": {
                           "updated_at": "2026-04-14T19:56:00Z",
+                          "source_snapshot_month": "2026-04",
                           "record_count": 70852335,
                           "zip_url": "https://file.opencnpj.org/releases/receita/data.zip",
                           "zip_size": 8270000000,
@@ -525,6 +526,11 @@
         "properties": {
           "updated_at": {
             "type": "string"
+          },
+          "source_snapshot_month": {
+            "type": ["string", "null"],
+            "pattern": "^\\d{4}-\\d{2}$",
+            "description": "Somente em datasets.receita: competência (YYYY-MM) dos arquivos da Receita Federal usados na publicação. Ausente ou null em releases anteriores à inclusão do campo."
           },
           "record_count": {
             "type": "integer"

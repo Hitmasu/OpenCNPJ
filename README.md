@@ -256,7 +256,7 @@ A página é implementada em React + TypeScript e continua sendo 100% estática 
 - A API publicada consome os `*.ndjson` e `*.index.bin` do release ativo no R2, onde `prefix` usa os 3 primeiros caracteres do CNPJ normalizado.
 - Cada linha do `*.ndjson` representa um CNPJ e o `*.index.bin` guarda `offset` e `length` exatos para leitura direta no Worker.
 - O contrato de CNPJ já aceita formato alfanumérico: 12 caracteres alfanuméricos + 2 dígitos finais.
-- O arquivo `info.json` continua sendo publicado com metadados do release ativo, `storage_release_id`, ZIP principal da Receita e o mapa `datasets` com metadados de ZIP por base.
+- O arquivo `info.json` continua sendo publicado com metadados do release ativo, `storage_release_id`, ZIP principal da Receita e o mapa `datasets` com metadados de ZIP por base. `datasets.receita.source_snapshot_month` informa a competência (`YYYY-MM`) dos arquivos da Receita usados na publicação, e é `null` enquanto nenhuma base nova tiver sido publicada com o campo.
 
 ## Deploy
 

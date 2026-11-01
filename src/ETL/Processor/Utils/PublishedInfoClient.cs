@@ -41,6 +41,7 @@ internal sealed class PublishedInfoClient
         var lastUpdated = TryGetString(root, "last_updated");
         var storageReleaseId = TryGetString(root, "storage_release_id");
         var baseZip = PublishedZipArtifactSnapshot.Missing;
+        string? receitaSourceSnapshotMonth = null;
         var moduleShards = new Dictionary<string, PublishedModuleShardSnapshot>(StringComparer.Ordinal);
 
         if (root.TryGetProperty("datasets", out var datasetsElement)
@@ -51,7 +52,10 @@ internal sealed class PublishedInfoClient
                 if (string.Equals(moduleProperty.Name, "receita", StringComparison.Ordinal))
                 {
                     if (moduleProperty.Value.ValueKind == JsonValueKind.Object)
+                    {
                         baseZip = TryGetZipSnapshot(moduleProperty.Value);
+                        receitaSourceSnapshotMonth = TryGetString(moduleProperty.Value, "source_snapshot_month");
+                    }
 
                     continue;
                 }
@@ -91,7 +95,8 @@ internal sealed class PublishedInfoClient
             lastUpdated,
             storageReleaseId,
             baseZip,
-            moduleShards);
+            moduleShards,
+            receitaSourceSnapshotMonth);
     }
 
     private async Task<JsonDocument> GetPublishedInfoDocumentAsync(CancellationToken cancellationToken)

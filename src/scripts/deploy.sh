@@ -743,7 +743,11 @@ fi
 log "Executando ETL"
 pushd "$ETL_DIR" >/dev/null
 set +e
-dotnet run "${PIPELINE_ARGS[@]}"
+if [[ -n "${OPENCNPJ_ETL_BINARY:-}" ]]; then
+  "$OPENCNPJ_ETL_BINARY" "${PIPELINE_ARGS[@]}"
+else
+  dotnet run "${PIPELINE_ARGS[@]}"
+fi
 PIPELINE_EXIT_CODE=$?
 set -e
 popd >/dev/null

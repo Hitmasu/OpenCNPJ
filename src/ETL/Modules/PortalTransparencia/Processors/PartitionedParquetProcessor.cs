@@ -1274,8 +1274,9 @@ internal sealed class PartitionedParquetProcessor
 
     private static string BuildEmendasDocumentosQuery(ExtractedDataset files)
     {
-        var documentos = Csv(
-            files.RequireFilesEnding("_EmendasParlamentares_PorDocumento.csv"),
+        var paths = files.RequireFilesEnding("_EmendasParlamentares_PorDocumento.csv");
+        var columns = new List<string>
+        {
             "codigo_emenda",
             "ano",
             "codigo_autor",
@@ -1323,7 +1324,15 @@ internal sealed class PartitionedParquetProcessor
             "linguagem_cidada",
             "codigo_subtitulo",
             "subtitulo",
-            "possui_convenio");
+            "possui_convenio"
+        };
+        var hasSupporterColumn = ResolveEmendasDocumentosColumnCount(paths) == 49;
+        if (hasSupporterColumn)
+            columns.Insert(5, "possui_apoiador_solicitante");
+        var documentos = Csv(paths, columns.ToArray());
+        var supporterField = hasSupporterColumn
+            ? "possui_apoiador_solicitante := COALESCE(possui_apoiador_solicitante, ''),"
+            : string.Empty;
 
         return $"""
                 SELECT
@@ -1340,6 +1349,7 @@ internal sealed class PartitionedParquetProcessor
                         autor_codigo := COALESCE(codigo_autor, ''),
                         autor_nome := COALESCE(nome_autor, ''),
                         numero_emenda := COALESCE(numero_emenda, ''),
+                        {supporterField}
                         tipo_emenda := COALESCE(tipo_emenda, ''),
                         data_documento := COALESCE(data_documento, ''),
                         codigo_documento := COALESCE(codigo_documento, ''),
@@ -1386,6 +1396,25 @@ internal sealed class PartitionedParquetProcessor
                 FROM {documentos}
                 WHERE {Valid("CleanCnpj(codigo_favorecido)")}
                 """;
+    }
+
+    private static int ResolveEmendasDocumentosColumnCount(IReadOnlyList<string> paths)
+    {
+        var counts = paths.Select(path =>
+        {
+            using var reader = new StreamReader(path);
+            var header = reader.ReadLine()
+                         ?? throw new InvalidDataException($"O CSV {path} está vazio.");
+            return header.Count(character => character == ';') + 1;
+        }).Distinct().ToArray();
+
+        if (counts.Length != 1 || counts[0] is not (48 or 49))
+        {
+            throw new InvalidDataException(
+                $"O CSV de documentos de emendas deve ter 48 ou 49 colunas; encontrado: {string.Join(", ", counts)}.");
+        }
+
+        return counts[0];
     }
 
     private static string Csv(

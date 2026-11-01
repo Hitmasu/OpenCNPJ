@@ -65,6 +65,34 @@ public sealed class ReleaseInfoPublisherTests
         Assert.AreEqual("module-md5", cno.GetProperty("zip_md5checksum").GetString());
     }
 
+    [DataTestMethod]
+    [DataRow("2026-04")]
+    [DataRow(null)]
+    public void SerializeForTest_ShouldPublishReceitaSourceSnapshotMonth(string? month)
+    {
+        var publication = new ReleaseInfoPublication(
+            DatasetKey: "2026-05",
+            ReceitaDatasetKey: "receita",
+            Total: 100,
+            ShardCount: 2,
+            LastUpdated: "2026-05-02T00:00:00Z",
+            ShardPrefixLength: 3,
+            StorageReleaseId: "release-123",
+            PublicationReleaseId: "release-123",
+            BaseZip: ZipArtifactPublication.Missing,
+            IntegrationSummaries: [],
+            ModuleShards: new Dictionary<string, ModuleShardPublication>(StringComparer.Ordinal),
+            SourceSnapshotMonth: month);
+
+        using var document = JsonDocument.Parse(ReleaseInfoPublisher.SerializeForTest(publication));
+        var property = document.RootElement
+            .GetProperty("datasets")
+            .GetProperty("receita")
+            .GetProperty("source_snapshot_month");
+
+        Assert.AreEqual(month, property.GetString());
+    }
+
     [TestMethod]
     public void SerializeForTest_ShouldPublishSegmentRoutingManifest()
     {
