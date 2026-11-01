@@ -6,11 +6,15 @@ namespace CNPJExporter.Processors.BigQuery;
 internal sealed class BigQueryPublisher
 {
     private static readonly Regex InvalidTableNameCharacterPattern = new("[^A-Za-z0-9_]", RegexOptions.Compiled);
+    private const int MaxCredentialAttempts = 4;
+    private const string GcloudCredentialFailureMarker = "Error retrieving auth credentials";
     private readonly IBigQueryCommandRunner _commandRunner;
+    private readonly TimeSpan _retryDelay;
 
-    public BigQueryPublisher(IBigQueryCommandRunner? commandRunner = null)
+    public BigQueryPublisher(IBigQueryCommandRunner? commandRunner = null, TimeSpan? retryDelay = null)
     {
         _commandRunner = commandRunner ?? new ProcessBigQueryCommandRunner();
+        _retryDelay = retryDelay ?? TimeSpan.FromSeconds(15);
     }
 
     public async Task PublishAsync(
@@ -117,7 +121,25 @@ internal sealed class BigQueryPublisher
             arguments.Add($"--location={plan.Location}");
 
         arguments.AddRange(commandArguments);
-        await _commandRunner.RunAsync(plan.BqExecutable, arguments, cancellationToken);
+
+        // ponytail: só repete falha de credencial do gcloud (bq ainda não enviou nada, seguro até para load em append);
+        // falha de rede no meio do job não é repetida porque um load em append poderia duplicar linhas.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _commandRunner.RunAsync(plan.BqExecutable, arguments, cancellationToken);
+                return;
+            }
+            catch (InvalidOperationException ex) when (
+                attempt < MaxCredentialAttempts &&
+                ex.Message.Contains(GcloudCredentialFailureMarker, StringComparison.Ordinal))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]BigQuery: falha ao obter credenciais do gcloud (tentativa {attempt}/{MaxCredentialAttempts}); repetindo...[/]");
+                await Task.Delay(_retryDelay * attempt, cancellationToken);
+            }
+        }
     }
 
     private async Task ValidateTargetDatasetAsync(

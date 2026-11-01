@@ -95,6 +95,82 @@ public sealed class BigQueryPublisherTests
         }
     }
 
+    [TestMethod]
+    public async Task PublishAsync_ShouldRetryCommandWhenGcloudCredentialRefreshFails()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-bigquery-publish-{Guid.NewGuid():N}");
+        try
+        {
+            var sourcePath = Path.Combine(tempRoot, "cnep.parquet");
+            Directory.CreateDirectory(tempRoot);
+            File.WriteAllText(sourcePath, "placeholder");
+
+            var runner = new RecordingBigQueryCommandRunner
+            {
+                FailOnce = ("cp", new InvalidOperationException(
+                    "Comando BigQuery falhou com exit code 1: bq cp --force a b. BigQuery error in cp operation: " +
+                    "Error retrieving auth credentials from gcloud: ERROR: (gcloud.auth.print-access-token) " +
+                    "[Errno 101] Network is unreachable"))
+            };
+            var publisher = new BigQueryPublisher(runner, retryDelay: TimeSpan.Zero);
+            var plan = new BigQueryPublicationPlan(
+                ProjectId: "opencnpj-bigquery",
+                Dataset: "public",
+                ReleaseId: "release-1",
+                BqExecutable: "bq",
+                Location: null,
+                KeepStagingTables: false,
+                Tables: [new BigQueryTablePublication("cnep", "cnep", [sourcePath])]);
+
+            await publisher.PublishAsync(plan);
+
+            CollectionAssert.AreEqual(
+                new[] { "show", "load", "cp", "cp", "rm" },
+                runner.Commands.Select(CommandName).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PublishAsync_ShouldNotRetryNonCredentialFailures()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-bigquery-publish-{Guid.NewGuid():N}");
+        try
+        {
+            var sourcePath = Path.Combine(tempRoot, "cnep.parquet");
+            Directory.CreateDirectory(tempRoot);
+            File.WriteAllText(sourcePath, "placeholder");
+
+            var runner = new RecordingBigQueryCommandRunner
+            {
+                FailOnce = ("load", new InvalidOperationException("Comando BigQuery falhou com exit code 1: bq load. Schema mismatch"))
+            };
+            var publisher = new BigQueryPublisher(runner, retryDelay: TimeSpan.Zero);
+            var plan = new BigQueryPublicationPlan(
+                ProjectId: "opencnpj-bigquery",
+                Dataset: "public",
+                ReleaseId: "release-1",
+                BqExecutable: "bq",
+                Location: null,
+                KeepStagingTables: false,
+                Tables: [new BigQueryTablePublication("cnep", "cnep", [sourcePath])]);
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => publisher.PublishAsync(plan));
+            CollectionAssert.AreEqual(
+                new[] { "show", "load" },
+                runner.Commands.Select(CommandName).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private static string CommandName(RecordedBigQueryCommand command) =>
         command.Args.First(arg => arg is "show" or "load" or "cp" or "rm");
 
@@ -104,9 +180,18 @@ public sealed class BigQueryPublisherTests
     {
         public List<RecordedBigQueryCommand> Commands { get; } = [];
 
+        public (string Command, Exception Error)? FailOnce { get; set; }
+
         public Task RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken = default)
         {
-            Commands.Add(new RecordedBigQueryCommand(executable, arguments.ToArray()));
+            var command = new RecordedBigQueryCommand(executable, arguments.ToArray());
+            Commands.Add(command);
+            if (FailOnce is { } failure && CommandName(command) == failure.Command)
+            {
+                FailOnce = null;
+                return Task.FromException(failure.Error);
+            }
+
             return Task.CompletedTask;
         }
     }
