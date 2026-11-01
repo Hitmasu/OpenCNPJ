@@ -44,25 +44,42 @@ public sealed class DataIntegrationOrchestrator
                             || !string.Equals(publishedState.SchemaVersion, descriptor.SchemaVersion, StringComparison.Ordinal)
                             || now - publishedState.UpdatedAt >= descriptor.RefreshInterval
                             || !PublicationFilesExist(cachedState);
-            var source = shouldRun && integration is IDataIntegrationSourceProvider sourceProvider
-                ? await sourceProvider.GetSourceAsync(cancellationToken)
-                : null;
-            var canReusePublishedResult = shouldRun
-                                          && source is not null
-                                          && CanReusePublishedResult(previousState, descriptor, source);
-            var runIntegration = shouldRun && !canReusePublishedResult;
-            var result = runIntegration
-                ? await integration.RunAsync(
-                    new DataIntegrationRunContext(
-                        datasetKey,
-                        paths,
-                        moduleWorkDir,
-                        moduleParquetDir,
-                        previousState,
-                        now,
-                        source),
-                    cancellationToken)
-                : DataIntegrationRunResult.Unchanged(previousState, now);
+            var runIntegration = false;
+            DataIntegrationRunResult result;
+            try
+            {
+                var source = shouldRun && integration is IDataIntegrationSourceProvider sourceProvider
+                    ? await sourceProvider.GetSourceAsync(cancellationToken)
+                    : null;
+                var canReusePublishedResult = shouldRun
+                                              && source is not null
+                                              && CanReusePublishedResult(previousState, descriptor, source);
+                runIntegration = shouldRun && !canReusePublishedResult;
+                result = runIntegration
+                    ? await integration.RunAsync(
+                        new DataIntegrationRunContext(
+                            datasetKey,
+                            paths,
+                            moduleWorkDir,
+                            moduleParquetDir,
+                            previousState,
+                            now,
+                            source),
+                        cancellationToken)
+                    : DataIntegrationRunResult.Unchanged(previousState, now);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException
+                                       && cacheMatchesPublishedInfo
+                                       && !schemaChanged
+                                       && PublicationFilesExist(previousState))
+            {
+                // Fonte externa quebrada (ex.: zip truncado na origem) não pode travar o pipeline inteiro:
+                // mantém o resultado já publicado e tenta de novo no próximo ciclo.
+                Console.Error.WriteLine(
+                    $"[integrations] {descriptor.Key} falhou ({ex.GetType().Name}: {ex.Message}); mantendo resultado publicado {previousState.SourceVersion}.");
+                runIntegration = false;
+                result = DataIntegrationRunResult.Unchanged(previousState, now);
+            }
 
             var changedCnpjs = ComputeChangedCnpjs(previousState.Hashes, result.CurrentHashes);
             var sourceVersionChanged = !string.Equals(previousState.SourceVersion, result.SourceVersion, StringComparison.Ordinal);
