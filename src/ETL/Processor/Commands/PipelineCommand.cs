@@ -40,6 +40,10 @@ public class PipelineSettings : CommandSettings
     [Description("Reutiliza artefatos locais e remotos já concluídos para o release informado")]
     public bool ResumeExistingRelease { get; init; }
 
+    [CommandOption("--ignore-published-info")]
+    [Description("Não lê o info.json publicado e refaz todos os módulos. Use só com o storage vazio.")]
+    public bool IgnorePublishedInfo { get; init; }
+
 }
 
 public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
@@ -57,15 +61,12 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
         receitaIntegration.Descriptor.Validate();
         var integrations = DataIntegrationRegistry.CreateDefault();
         string? publishedMonth = null;
-        string? publishedLastUpdated = null;
-        PublishedInfoSnapshot? publishedInfo = null;
+        var publishedInfo = await LoadPublishedInfoAsync(settings, new PublishedInfoClient());
+        var publishedLastUpdated = publishedInfo?.LastUpdated;
         var baseDatasetAlreadyCurrent = false;
 
-        if (string.IsNullOrWhiteSpace(settings.Month))
+        if (publishedInfo is not null && string.IsNullOrWhiteSpace(settings.Month))
         {
-            var publishedInfoClient = new PublishedInfoClient();
-            publishedInfo = await publishedInfoClient.GetPublishedInfoAsync();
-            publishedLastUpdated = publishedInfo.LastUpdated;
             baseDatasetAlreadyCurrent =
                 DatasetPublicationPolicy.TryGetPublishedMonth(publishedInfo.ReceitaSourceSnapshotMonth, publishedLastUpdated, out publishedMonth)
                 && string.Equals(publishedMonth, currentMonth, StringComparison.Ordinal);
@@ -226,6 +227,13 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
 
         AnsiConsole.MarkupLine("[green]✅ Pipeline completo concluído![/]");
         return 0;
+    }
+
+    internal static async Task<PublishedInfoSnapshot?> LoadPublishedInfoAsync(
+        PipelineSettings settings,
+        PublishedInfoClient client)
+    {
+        return settings.IgnorePublishedInfo ? null : await client.GetPublishedInfoAsync();
     }
 
     private static int NoWork(string currentMonth)
