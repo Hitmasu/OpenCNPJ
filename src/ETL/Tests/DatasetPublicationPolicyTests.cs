@@ -51,6 +51,21 @@ public sealed class DatasetPublicationPolicyTests
         Assert.AreEqual("2026-04", publishedMonth);
     }
 
+    [DataTestMethod]
+    [DataRow("2026-10", "2026-11-01T12:00:00Z", "2026-10")]
+    [DataRow(null, "2026-10-14T09:48:02Z", "2026-10")]
+    [DataRow("invalida", "2026-10-14T09:48:02Z", "2026-10")]
+    public void TryGetPublishedMonth_ShouldPreferSourceSnapshotMonth(
+        string? sourceSnapshotMonth,
+        string lastUpdated,
+        string expected)
+    {
+        var result = DatasetPublicationPolicy.TryGetPublishedMonth(sourceSnapshotMonth, lastUpdated, out var publishedMonth);
+
+        Assert.IsTrue(result);
+        Assert.AreEqual(expected, publishedMonth);
+    }
+
     [TestMethod]
     public void TryGetPublishedMonth_ReturnsFalseWhenTimestampIsInvalid()
     {

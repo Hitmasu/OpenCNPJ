@@ -67,7 +67,7 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
             publishedInfo = await publishedInfoClient.GetPublishedInfoAsync();
             publishedLastUpdated = publishedInfo.LastUpdated;
             baseDatasetAlreadyCurrent =
-                DatasetPublicationPolicy.TryGetPublishedMonth(publishedLastUpdated, out publishedMonth)
+                DatasetPublicationPolicy.TryGetPublishedMonth(publishedInfo.ReceitaSourceSnapshotMonth, publishedLastUpdated, out publishedMonth)
                 && string.Equals(publishedMonth, currentMonth, StringComparison.Ordinal);
 
             if (baseDatasetAlreadyCurrent && integrations.Count == 0)

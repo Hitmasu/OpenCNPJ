@@ -52,6 +52,19 @@ internal static class DatasetPublicationPolicy
         return DateTimeOffset.Now.ToString("yyyy-MM");
     }
 
+    // last_updated é a data da publicação: um reprocessamento de competência anterior não pode
+    // fazer a base do mês corrente parecer já publicada. Releases sem competência usam last_updated.
+    public static bool TryGetPublishedMonth(string? sourceSnapshotMonth, string? lastUpdated, out string? publishedMonth)
+    {
+        if (DatasetPathResolver.IsDatasetKey(sourceSnapshotMonth))
+        {
+            publishedMonth = sourceSnapshotMonth;
+            return true;
+        }
+
+        return TryGetPublishedMonth(lastUpdated, out publishedMonth);
+    }
+
     public static bool TryGetPublishedMonth(string? lastUpdated, out string? publishedMonth)
     {
         publishedMonth = null;
