@@ -162,30 +162,17 @@ public sealed class ShardQueryBuilder
                         )) AS cnaes,
                     COALESCE(emp.natureza_juridica, '') AS codigo_natureza_juridica,
                     COALESCE(nat.descricao, '') AS natureza_juridica,
-                    COALESCE(e.tipo_logradouro, '') AS tipo_logradouro,
-                    {LgpdProjection.Logradouro} AS logradouro,
-                    {LgpdProjection.Numero} AS numero,
-                    COALESCE(e.complemento, '') AS complemento,
-                    COALESCE(e.bairro, '') AS bairro,
-                    {LgpdProjection.Cep} AS cep,
-                    COALESCE(e.uf, '') AS uf,
-                    COALESCE(mun.descricao, '') AS municipio,
-                    COALESCE(e.codigo_municipio, '') AS codigo_municipio,
+                    {LgpdProjection.Endereco("e.tipo_logradouro")} AS tipo_logradouro,
+                    {LgpdProjection.Endereco("e.logradouro")} AS logradouro,
+                    {LgpdProjection.Endereco("e.numero")} AS numero,
+                    {LgpdProjection.Endereco("e.complemento")} AS complemento,
+                    {LgpdProjection.Endereco("e.bairro")} AS bairro,
+                    {LgpdProjection.Endereco("e.cep")} AS cep,
+                    {LgpdProjection.Endereco("e.uf")} AS uf,
+                    {LgpdProjection.Endereco("mun.descricao")} AS municipio,
+                    {LgpdProjection.Endereco("e.codigo_municipio")} AS codigo_municipio,
                     {LgpdProjection.Email} AS email,
-                    list_filter([
-                        CASE WHEN e.ddd1 IS NOT NULL OR e.telefone1 IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := {LgpdProjection.TelefoneNumero("e.telefone1")}, is_fax := false)
-                             ELSE NULL
-                        END,
-                        CASE WHEN e.ddd2 IS NOT NULL OR e.telefone2 IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := {LgpdProjection.TelefoneNumero("e.telefone2")}, is_fax := false)
-                             ELSE NULL
-                        END,
-                        CASE WHEN e.ddd_fax IS NOT NULL OR e.fax IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := {LgpdProjection.TelefoneNumero("e.fax")}, is_fax := true)
-                             ELSE NULL
-                        END
-                    ], telefone -> telefone IS NOT NULL) AS telefones,
+                    {LgpdProjection.Telefones} AS telefones,
                     TRY_CAST(REPLACE(NULLIF(emp.capital_social, ''), ',', '.') AS DECIMAL(18, 2)) AS capital_social,
                     struct_pack(
                         codigo := COALESCE(emp.qualificacao_responsavel, ''),
@@ -241,7 +228,7 @@ public sealed class ShardQueryBuilder
                         codigo := COALESCE(e.motivo_situacao_cadastral, ''),
                         descricao := COALESCE(mot.descricao, '')
                     ) AS motivo_situacao_cadastral,
-                    COALESCE(e.nome_cidade_exterior, '') AS nome_cidade_exterior,
+                    {LgpdProjection.Endereco("e.nome_cidade_exterior")} AS nome_cidade_exterior,
                     COALESCE(e.codigo_pais, '') AS codigo_pais,
                     struct_pack(
                         codigo := COALESCE(e.codigo_pais, ''),
@@ -256,7 +243,7 @@ public sealed class ShardQueryBuilder
                         ELSE TRY_CAST(NULLIF(e.data_situacao_especial, '') AS DATE)
                     END AS data_situacao_especial,
                     COALESCE(
-                        list_transform(sd.qsa_data, socio -> struct_pack(
+                        list_transform({LgpdProjection.QsaData}, socio -> struct_pack(
                             nome_socio := socio.nome_socio,
                             cnpj_cpf_socio := socio.cnpj_cpf_socio,
                             qualificacao_socio := socio.qualificacao_socio,
