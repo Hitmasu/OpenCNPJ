@@ -15,6 +15,7 @@ DEFAULT_VALIDATE_CNPJ="60701190000104"
 PENDING_RELEASE_FILE="${ETL_DIR}/cnpj_shards/.pending-release-id"
 
 MONTH=""
+IGNORE_PUBLISHED_INFO="false"
 RELEASE_ID="${OPENCNPJ_RELEASE_ID:-}"
 RESUME_EXISTING_RELEASE="false"
 BASE_URL="${OPENCNPJ_BASE_URL:-}"
@@ -25,7 +26,7 @@ SKIP_DELETE_OLD="false"
 usage() {
   cat <<'EOF'
 Uso:
-  src/script/deploy.sh [--month YYYY-MM] [--release-id ID] [--base-url URL] [--validate-cnpj CNPJ] [--cleanup-on-success] [--skip-delete-old]
+  src/script/deploy.sh [--month YYYY-MM] [--ignore-published-info] [--release-id ID] [--base-url URL] [--validate-cnpj CNPJ] [--cleanup-on-success] [--skip-delete-old]
 
 Fluxo:
   1. Gera um release id curto
@@ -43,6 +44,10 @@ while [[ $# -gt 0 ]]; do
     --month|-m)
       MONTH="${2:-}"
       shift 2
+      ;;
+    --ignore-published-info)
+      IGNORE_PUBLISHED_INFO="true"
+      shift
       ;;
     --release-id)
       RELEASE_ID="${2:-}"
@@ -738,6 +743,9 @@ if [[ "$RESUME_EXISTING_RELEASE" == "true" ]]; then
 fi
 if [[ -n "$MONTH" ]]; then
   PIPELINE_ARGS+=(--month "$MONTH")
+fi
+if [[ "$IGNORE_PUBLISHED_INFO" == "true" ]]; then
+  PIPELINE_ARGS+=(--ignore-published-info)
 fi
 
 log "Executando ETL"

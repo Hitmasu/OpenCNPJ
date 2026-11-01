@@ -268,6 +268,7 @@ A página é implementada em React + TypeScript e continua sendo 100% estática 
   - faz `npx wrangler deploy`
   - valida `/info`, um CNPJ canônico e o mesmo CNPJ mascarado
   - remove o release antigo do bucket só depois da validação
+- `--month YYYY-MM` reprocessa a base da Receita dessa competência e mantém os módulos já publicados. O `info.json` publicado é obrigatório, exceto com `--ignore-published-info`, que refaz todos os módulos e serve para o primeiro release em um storage vazio.
 
 ## Contribuição
 

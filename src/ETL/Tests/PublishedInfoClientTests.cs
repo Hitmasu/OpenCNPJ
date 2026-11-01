@@ -1,4 +1,5 @@
 using System.Text;
+using CNPJExporter.Commands;
 using CNPJExporter.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -80,6 +81,23 @@ public sealed class PublishedInfoClientTests
         var info = await client.GetPublishedInfoAsync();
 
         Assert.AreEqual(expected, info.ReceitaSourceSnapshotMonth);
+    }
+
+    [DataTestMethod]
+    [DataRow(null, false, true)]
+    [DataRow("2026-10", false, true)]
+    [DataRow("2026-10", true, false)]
+    public async Task LoadPublishedInfoAsync_ShouldReadInfoEvenWhenMonthIsForced(
+        string? month,
+        bool ignorePublishedInfo,
+        bool expectedLoaded)
+    {
+        var client = new PublishedInfoClient(new InMemoryPublishedInfoReader("""{ "storage_release_id": "base-release" }"""));
+        var settings = new PipelineSettings { Month = month, IgnorePublishedInfo = ignorePublishedInfo };
+
+        var info = await PipelineCommand.LoadPublishedInfoAsync(settings, client);
+
+        Assert.AreEqual(expectedLoaded, info is not null, "Sem o info.json, módulos publicados seriam refeitos do zero.");
     }
 
     [TestMethod]
