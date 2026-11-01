@@ -54,6 +54,10 @@ COPY . .
 RUN chmod +x /app/src/scripts/deploy.sh /app/src/scripts/docker-entrypoint.sh \
     && npm ci --prefix /app/src/Worker \
     && ln -sf /app/src/Worker/node_modules/.bin/wrangler /usr/local/bin/wrangler \
-    && dotnet restore /app/src/ETL/Processor/CNPJExporter.csproj
+    && dotnet publish /app/src/ETL/Processor/CNPJExporter.csproj -c Release -o /app/etl-bin
+
+# Roda o ETL já compilado: `dotnet run` recompila a cada ciclo e mantém o SDK e os nós do MSBuild
+# residentes (~6 GB) durante o pipeline inteiro.
+ENV OPENCNPJ_ETL_BINARY=/app/etl-bin/CNPJExporter
 
 ENTRYPOINT ["/app/src/scripts/docker-entrypoint.sh"]
