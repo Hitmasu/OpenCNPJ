@@ -454,17 +454,6 @@ select{
 .limits-actions{
   margin-top:18px;
 }
-.contact-line{
-  display:flex;
-  flex-wrap:wrap;
-  align-items:center;
-  gap:10px;
-  margin:4px 0 16px;
-}
-.contact-line span{
-  color:var(--text);
-  overflow-wrap:anywhere;
-}
 .hint{
   margin:0;
   color:var(--muted);
