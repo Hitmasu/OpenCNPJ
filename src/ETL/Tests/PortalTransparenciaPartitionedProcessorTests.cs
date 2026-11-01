@@ -315,21 +315,29 @@ public sealed class PortalTransparenciaPartitionedProcessorTests
         }
     }
 
-    [TestMethod]
-    public async Task EmendasDocumentos_ShouldKeepOnlyCnpjRows()
+    [DataTestMethod]
+    [DataRow(48, "")]
+    [DataRow(49, "Sim")]
+    public async Task EmendasDocumentos_ShouldKeepOnlyCnpjRows(
+        int columnCount,
+        string supporterFlag)
     {
         var root = CreateTempRoot();
         try
         {
+            var offset = columnCount - 48;
             var files = new[]
             {
-                WriteCsv(root, "2024_EmendasParlamentares_PorDocumento.csv", 48,
-                    Row(48, (0, "EM1"), (1, "2024"), (3, "Autor"),
-                        (8, "20/01/2024"), (9, "DOC1"), (14, "Pagamento"),
-                        (15, AlphaCnpj), (16, "Favorecida"), (46, "Subtítulo"),
-                        (47, "Sim")),
-                    Row(48, (0, "EM2"), (1, "2024"), (9, "DOC-PF"),
-                        (15, "12345678900"), (16, "Pessoa")))
+                WriteCsv(root, "2024_EmendasParlamentares_PorDocumento.csv", columnCount,
+                    Row(columnCount, (0, "EM1"), (1, "2024"), (3, "Autor"),
+                        (5, supporterFlag),
+                        (8 + offset, "20/01/2024"), (9 + offset, "DOC1"),
+                        (14 + offset, "Pagamento"), (15 + offset, AlphaCnpj),
+                        (16 + offset, "Favorecida"), (46 + offset, "Subtítulo"),
+                        (47 + offset, "Sim")),
+                    Row(columnCount, (0, "EM2"), (1, "2024"),
+                        (9 + offset, "DOC-PF"), (15 + offset, "12345678900"),
+                        (16 + offset, "Pessoa")))
             };
 
             using var payload = await ProcessAndReadAsync(
@@ -342,6 +350,12 @@ public sealed class PortalTransparenciaPartitionedProcessorTests
             Assert.AreEqual(
                 "DOC1",
                 records[0].GetProperty("codigo_documento").GetString());
+            if (columnCount == 49)
+            {
+                Assert.AreEqual(
+                    "Sim",
+                    records[0].GetProperty("possui_apoiador_solicitante").GetString());
+            }
         }
         finally
         {
