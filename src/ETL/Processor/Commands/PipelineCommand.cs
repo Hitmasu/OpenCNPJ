@@ -360,7 +360,8 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
                 releaseId,
                 baseZip,
                 integrationSummaries,
-                moduleShards);
+                moduleShards,
+                ingestor.DatasetKey ?? selectedMonth);
         }
 
         var storageReleaseId = publishedInfo?.StorageReleaseId;
@@ -371,6 +372,8 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
             throw new InvalidOperationException("Publicação de módulos exige total, shard_count e release base anterior no info.json.");
         }
 
+        // Release só de módulos reaproveita a base publicada: selectedMonth aqui é só a pasta local
+        // ou o mês corrente, então a competência vem do info.json anterior.
         return new ReleaseInfoPublication(
             ingestor.DatasetKey ?? selectedMonth,
             receitaDescriptor.Key,
@@ -382,7 +385,8 @@ public sealed class PipelineCommand : AsyncCommand<PipelineSettings>
             releaseId,
             baseZip,
             integrationSummaries,
-            moduleShards);
+            moduleShards,
+            publishedInfo.ReceitaSourceSnapshotMonth);
     }
 
     private static string GenerateReleaseId(string datasetKey)

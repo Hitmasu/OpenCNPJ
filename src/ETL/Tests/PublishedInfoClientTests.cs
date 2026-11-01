@@ -67,6 +67,21 @@ public sealed class PublishedInfoClientTests
         Assert.AreEqual("module-md5", cno.Zip.Md5Checksum);
     }
 
+    [DataTestMethod]
+    [DataRow("""{ "datasets": { "receita": { "source_snapshot_month": "2026-04" } } }""", "2026-04")]
+    [DataRow("""{ "datasets": { "receita": { "source_snapshot_month": null } } }""", null)]
+    [DataRow("""{ "datasets": { "receita": {} } }""", null)]
+    public async Task GetPublishedInfoAsync_ShouldParseReceitaSourceSnapshotMonth(
+        string payload,
+        string? expected)
+    {
+        var client = new PublishedInfoClient(new InMemoryPublishedInfoReader(payload));
+
+        var info = await client.GetPublishedInfoAsync();
+
+        Assert.AreEqual(expected, info.ReceitaSourceSnapshotMonth);
+    }
+
     [TestMethod]
     public async Task GetPublishedInfoAsync_ShouldParseSegmentedModule()
     {

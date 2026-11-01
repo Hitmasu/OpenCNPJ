@@ -69,6 +69,7 @@ internal sealed class ReleaseInfoPublisher
             {
                 storage_release_id = publication.StorageReleaseId,
                 updated_at = publication.LastUpdated,
+                source_snapshot_month = publication.SourceSnapshotMonth,
                 record_count = publication.Total,
                 zip_available = publication.BaseZip.Available,
                 zip_size = publication.BaseZip.Size,
