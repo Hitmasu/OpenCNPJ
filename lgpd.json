@@ -1,4 +1,13 @@
 {
   "26006354000137": ["razao_social", "nome_fantasia", "endereco", "email", "telefones"],
-  "44652165000113": ["razao_social", "nome_fantasia", "endereco", "email", "telefones"]
+  "44652165000113": ["razao_social", "nome_fantasia", "endereco", "email", "telefones"],
+  "55202315000103": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"],
+  "55202315000294": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"],
+  "55202315000375": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"],
+  "22887141000100": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"],
+  "59318268000119": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"],
+  "68699553000118": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"],
+  "46038761000133": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"],
+  "35252601000176": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"],
+  "28851294000184": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"]
 }

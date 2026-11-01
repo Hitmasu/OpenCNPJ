@@ -222,18 +222,17 @@ public sealed class ReceitaJsonProjectionTests
             }
 
             var listed = payloads["11122233000181"];
-            Assert.AreEqual("FULANO B******", listed.GetProperty("razao_social").GetString());
-            Assert.AreEqual("FULANO S******", listed.GetProperty("nome_fantasia").GetString());
-            Assert.AreEqual("F*******@EXAMPLE.COM", listed.GetProperty("email").GetString());
-            Assert.AreEqual("", listed.GetProperty("logradouro").GetString());
-            Assert.AreEqual("", listed.GetProperty("numero").GetString());
-            Assert.AreEqual("", listed.GetProperty("cep").GetString());
-            Assert.AreEqual("RUA", listed.GetProperty("tipo_logradouro").GetString());
-            Assert.AreEqual("CENTRO", listed.GetProperty("bairro").GetString());
-            Assert.AreEqual("SP", listed.GetProperty("uf").GetString());
-            var telefone = listed.GetProperty("telefones")[0];
-            Assert.AreEqual("34", telefone.GetProperty("ddd").GetString());
-            Assert.AreEqual("90000000", telefone.GetProperty("numero").GetString());
+            foreach (var field in new[]
+                     {
+                         "razao_social", "nome_fantasia", "email", "tipo_logradouro", "logradouro", "numero",
+                         "complemento", "bairro", "cep", "uf", "municipio", "codigo_municipio", "nome_cidade_exterior"
+                     })
+            {
+                Assert.AreEqual("", listed.GetProperty(field).GetString(), field);
+            }
+
+            Assert.AreEqual(0, listed.GetProperty("telefones").GetArrayLength());
+            Assert.AreEqual("9511800", listed.GetProperty("cnae_principal").GetString());
             Assert.IsTrue(listed.GetProperty("lgpd_anonimizado").GetBoolean());
 
             var notListed = payloads["11122244000100"];
@@ -243,8 +242,46 @@ public sealed class ReceitaJsonProjectionTests
             Assert.AreEqual("EXEMPLO", notListed.GetProperty("logradouro").GetString());
             Assert.AreEqual("100", notListed.GetProperty("numero").GetString());
             Assert.AreEqual("01310100", notListed.GetProperty("cep").GetString());
+            Assert.AreEqual("CENTRO", notListed.GetProperty("bairro").GetString());
+            Assert.AreEqual("SP", notListed.GetProperty("uf").GetString());
+            Assert.AreEqual("7107", notListed.GetProperty("codigo_municipio").GetString());
             Assert.AreEqual("98765432", notListed.GetProperty("telefones")[0].GetProperty("numero").GetString());
             Assert.IsFalse(notListed.GetProperty("lgpd_anonimizado").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("""["razao_social", "qsa"]""", 0)]
+    [DataRow("""["razao_social"]""", 1)]
+    public async Task BuildJsonQueryForCnpj_ShouldRemoveQsaOnlyWhenListed(string fields, int expectedPartners)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"opencnpj-receita-lgpd-qsa-{Guid.NewGuid():N}");
+        var parquetDir = Path.Combine(tempRoot, "parquet");
+        var policyPath = Path.Combine(tempRoot, "lgpd.json");
+        Directory.CreateDirectory(parquetDir);
+
+        try
+        {
+            await File.WriteAllTextAsync(policyPath, $$"""{ "60701190000104": {{fields}} }""");
+
+            await using var connection = new DuckDBConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            await SeedReceitaProjectionDataAsync(connection, parquetDir);
+
+            var query = new ShardQueryBuilder(parquetDir, LgpdPolicy.Load(policyPath))
+                .BuildJsonQueryForCnpj("607", "60701190", "0001", "04", "json_output");
+
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = query;
+            using var document = JsonDocument.Parse((await cmd.ExecuteScalarAsync())!.ToString()!);
+
+            Assert.AreEqual(expectedPartners, document.RootElement.GetProperty("QSA").GetArrayLength());
+            Assert.AreEqual("", document.RootElement.GetProperty("razao_social").GetString());
         }
         finally
         {

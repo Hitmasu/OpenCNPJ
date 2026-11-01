@@ -14,27 +14,35 @@ internal static class LgpdProjection
     private const string RazaoSocialSemCpf =
         @"CASE WHEN emp.natureza_juridica = '2135' THEN regexp_replace(COALESCE(emp.razao_social, ''), '\s*[0-9]{11}\s*$', '') ELSE COALESCE(emp.razao_social, '') END";
 
-    public static readonly string RazaoSocial =
-        "CASE WHEN list_contains(lgpd.campos, 'razao_social') THEN " + MaskNome(RazaoSocialSemCpf) + " ELSE " + RazaoSocialSemCpf + " END";
+    public static readonly string RazaoSocial = Blank("razao_social", RazaoSocialSemCpf);
 
-    public static readonly string NomeFantasia =
-        "CASE WHEN list_contains(lgpd.campos, 'nome_fantasia') THEN " + MaskNome("COALESCE(e.nome_fantasia, '')") + " ELSE COALESCE(e.nome_fantasia, '') END";
+    public static readonly string NomeFantasia = Blank("nome_fantasia", "COALESCE(e.nome_fantasia, '')");
 
-    public const string Logradouro = "CASE WHEN list_contains(lgpd.campos, 'endereco') THEN '' ELSE COALESCE(e.logradouro, '') END";
+    public static readonly string Email = Blank("email", "COALESCE(e.correio_eletronico, '')");
 
-    public const string Numero = "CASE WHEN list_contains(lgpd.campos, 'endereco') THEN '' ELSE COALESCE(e.numero, '') END";
+    // O ELSE define o tipo da coluna: a lista vazia continua LIST(STRUCT) no JSON e no BigQuery.
+    public const string Telefones = """
+        CASE WHEN list_contains(lgpd.campos, 'telefones') THEN [] ELSE list_filter([
+            CASE WHEN e.ddd1 IS NOT NULL OR e.telefone1 IS NOT NULL
+                 THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := COALESCE(e.telefone1, ''), is_fax := false)
+                 ELSE NULL
+            END,
+            CASE WHEN e.ddd2 IS NOT NULL OR e.telefone2 IS NOT NULL
+                 THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := COALESCE(e.telefone2, ''), is_fax := false)
+                 ELSE NULL
+            END,
+            CASE WHEN e.ddd_fax IS NOT NULL OR e.fax IS NOT NULL
+                 THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := COALESCE(e.fax, ''), is_fax := true)
+                 ELSE NULL
+            END
+        ], telefone -> telefone IS NOT NULL) END
+        """;
 
-    public const string Cep = "CASE WHEN list_contains(lgpd.campos, 'endereco') THEN '' ELSE COALESCE(e.cep, '') END";
+    // NULL em vez de []: as projeções já convertem QSA ausente em lista vazia, mantendo o tipo da coluna.
+    public const string QsaData = "CASE WHEN list_contains(lgpd.campos, 'qsa') THEN NULL ELSE sd.qsa_data END";
 
-    // FULANO@EXAMPLE.COM -> F*******@EXAMPLE.COM
-    public const string Email =
-        @"CASE WHEN list_contains(lgpd.campos, 'email') THEN regexp_replace(COALESCE(e.correio_eletronico, ''), '^([^@])[^@]*', '\1*******') ELSE COALESCE(e.correio_eletronico, '') END";
+    public static string Endereco(string column) => Blank("endereco", $"COALESCE({column}, '')");
 
-    // Campo numérico: 98765432 -> 90000000 (DDD preservado).
-    public static string TelefoneNumero(string column) =>
-        $"CASE WHEN list_contains(lgpd.campos, 'telefones') THEN left(COALESCE({column}, ''), 1) || regexp_replace(substr(COALESCE({column}, ''), 2), '.', '0', 'g') ELSE COALESCE({column}, '') END";
-
-    // FULANO BELTRANO DA SILVA -> FULANO B******
-    private static string MaskNome(string expression) =>
-        @"regexp_replace(trim(" + expression + @"), '^(\S+)\s+(\S).*$', '\1 \2******')";
+    private static string Blank(string field, string value) =>
+        $"CASE WHEN list_contains(lgpd.campos, '{field}') THEN '' ELSE {value} END";
 }

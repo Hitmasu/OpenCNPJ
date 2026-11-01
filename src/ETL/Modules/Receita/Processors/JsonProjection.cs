@@ -55,30 +55,17 @@ internal static class JsonProjection
                         )),
                     codigo_natureza_juridica := COALESCE(emp.natureza_juridica, ''),
                     natureza_juridica := COALESCE(nat.descricao, ''),
-                    tipo_logradouro := COALESCE(e.tipo_logradouro, ''),
-                    logradouro := " + LgpdProjection.Logradouro + @",
-                    numero := " + LgpdProjection.Numero + @",
-                    complemento := COALESCE(e.complemento, ''),
-                    bairro := COALESCE(e.bairro, ''),
-                    cep := " + LgpdProjection.Cep + @",
-                    uf := COALESCE(e.uf, ''),
-                    municipio := COALESCE(mun.descricao, ''),
-                    codigo_municipio := COALESCE(e.codigo_municipio, ''),
+                    tipo_logradouro := " + LgpdProjection.Endereco("e.tipo_logradouro") + @",
+                    logradouro := " + LgpdProjection.Endereco("e.logradouro") + @",
+                    numero := " + LgpdProjection.Endereco("e.numero") + @",
+                    complemento := " + LgpdProjection.Endereco("e.complemento") + @",
+                    bairro := " + LgpdProjection.Endereco("e.bairro") + @",
+                    cep := " + LgpdProjection.Endereco("e.cep") + @",
+                    uf := " + LgpdProjection.Endereco("e.uf") + @",
+                    municipio := " + LgpdProjection.Endereco("mun.descricao") + @",
+                    codigo_municipio := " + LgpdProjection.Endereco("e.codigo_municipio") + @",
                     email := " + LgpdProjection.Email + @",
-                    telefones := list_filter([
-                        CASE WHEN e.ddd1 IS NOT NULL OR e.telefone1 IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd1, ''), numero := " + LgpdProjection.TelefoneNumero("e.telefone1") + @", is_fax := false)
-                             ELSE NULL
-                        END,
-                        CASE WHEN e.ddd2 IS NOT NULL OR e.telefone2 IS NOT NULL  
-                             THEN struct_pack(ddd := COALESCE(e.ddd2, ''), numero := " + LgpdProjection.TelefoneNumero("e.telefone2") + @", is_fax := false)
-                             ELSE NULL
-                        END,
-                        CASE WHEN e.ddd_fax IS NOT NULL OR e.fax IS NOT NULL
-                             THEN struct_pack(ddd := COALESCE(e.ddd_fax, ''), numero := " + LgpdProjection.TelefoneNumero("e.fax") + @", is_fax := true)
-                             ELSE NULL
-                        END
-                    ], x -> x IS NOT NULL),
+                    telefones := " + LgpdProjection.Telefones + @",
                     capital_social := COALESCE(emp.capital_social, ''),
                     qualificacao_responsavel := struct_pack(
                         codigo := COALESCE(emp.qualificacao_responsavel, ''),
@@ -126,7 +113,7 @@ internal static class JsonProjection
                         codigo := COALESCE(e.motivo_situacao_cadastral, ''),
                         descricao := COALESCE(mot.descricao, '')
                     ),
-                    nome_cidade_exterior := COALESCE(e.nome_cidade_exterior, ''),
+                    nome_cidade_exterior := " + LgpdProjection.Endereco("e.nome_cidade_exterior") + @",
                     codigo_pais := COALESCE(e.codigo_pais, ''),
                     pais := struct_pack(
                         codigo := COALESCE(e.codigo_pais, ''),
@@ -140,6 +127,6 @@ internal static class JsonProjection
                              SUBSTRING(e.data_situacao_especial, 7, 2)
                         ELSE COALESCE(e.data_situacao_especial, '')
                     END,
-                    QSA := COALESCE(sd.qsa_data, []),
+                    QSA := COALESCE(" + LgpdProjection.QsaData + @", []),
                     lgpd_anonimizado := " + LgpdProjection.Flag;
     }

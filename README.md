@@ -182,16 +182,15 @@ O arquivo `lgpd.json` (raiz do repositório) lista os CNPJs com dados pessoais a
 
 ```json
 {
-  "00000000000000": ["razao_social", "nome_fantasia", "endereco", "email", "telefones"]
+  "00000000000000": ["razao_social", "nome_fantasia", "endereco", "email", "telefones", "qsa"]
 }
 ```
 
-A anonimização vale para todos os destinos da Receita (API, ZIP e BigQuery) e entra no próximo release gerado:
+A anonimização vale para todos os destinos da Receita (API, ZIP e BigQuery) e entra no próximo release da base. Ela se aplica só ao CNPJ exato listado: filiais precisam de entrada própria.
 
-- `razao_social` / `nome_fantasia`: primeiro nome + inicial do segundo (`JOAO S******`).
-- `endereco`: `logradouro`, `numero` e `cep` ficam vazios.
-- `email`: primeiro caractere + domínio (`J*******@EXAMPLE.COM`).
-- `telefones`: DDD preservado; número vira primeiro dígito + zeros (`90000000`).
+- `razao_social` / `nome_fantasia` / `email`: ficam vazios.
+- `endereco`: `tipo_logradouro`, `logradouro`, `numero`, `complemento`, `bairro`, `cep`, `uf`, `municipio`, `codigo_municipio` e `nome_cidade_exterior` ficam vazios.
+- `telefones` / `qsa`: lista vazia. Sem `qsa` na entrada, o quadro societário continua publicado.
 - Os registros listados recebem `lgpd_anonimizado: true`.
 
 Independente da lista, o CPF que a Receita publica no fim da razão social de empresário individual (MEI, natureza `2135`) é removido de toda a base. O pipeline falha se o arquivo estiver ausente, se um CNPJ for inválido ou se houver um campo desconhecido.

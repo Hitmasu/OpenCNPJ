@@ -16,7 +16,8 @@ public sealed partial class LgpdPolicy
         "nome_fantasia",
         "endereco",
         "email",
-        "telefones"
+        "telefones",
+        "qsa"
     };
 
     private readonly IReadOnlyDictionary<string, string[]> _entries;

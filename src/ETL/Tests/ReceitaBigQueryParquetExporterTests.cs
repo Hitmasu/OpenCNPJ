@@ -148,7 +148,7 @@ public sealed class ReceitaBigQueryParquetExporterTests
             }
 
             await File.WriteAllTextAsync(policyPath, """
-                { "12ABC34501DE35": ["razao_social", "endereco", "email", "telefones"] }
+                { "12ABC34501DE35": ["razao_social", "endereco", "email", "telefones", "qsa"] }
                 """);
 
             var outputPaths = await new BigQueryParquetExporter(parquetRoot, shardPrefixLength: 3, LgpdPolicy.Load(policyPath))
@@ -159,18 +159,24 @@ public sealed class ReceitaBigQueryParquetExporterTests
                 await connection.OpenAsync();
                 await using var cmd = connection.CreateCommand();
                 cmd.CommandText = $@"
-                    SELECT razao_social, email, logradouro, numero, cep, telefones[1].numero, lgpd_anonimizado
+                    SELECT
+                        concat_ws('', razao_social, email, tipo_logradouro, logradouro, numero, complemento, bairro,
+                                  cep, uf, municipio, codigo_municipio, nome_cidade_exterior) AS suprimidos,
+                        len(telefones),
+                        CAST(typeof(telefones) AS VARCHAR),
+                        lgpd_anonimizado,
+                        len(QSA),
+                        CAST(typeof(QSA) AS VARCHAR)
                     FROM read_parquet('{EscapeSqlLiteral(outputPaths.Single())}')";
 
                 await using var reader = await cmd.ExecuteReaderAsync();
                 Assert.IsTrue(await reader.ReadAsync());
-                Assert.AreEqual("EMPRESA T******", reader.GetString(0));
-                Assert.AreEqual("c*******@example.invalid", reader.GetString(1));
-                Assert.AreEqual("", reader.GetString(2));
-                Assert.AreEqual("", reader.GetString(3));
-                Assert.AreEqual("", reader.GetString(4));
-                Assert.AreEqual("900000000", reader.GetString(5));
-                Assert.IsTrue(reader.GetBoolean(6));
+                Assert.AreEqual("", reader.GetString(0));
+                Assert.AreEqual(0L, Convert.ToInt64(reader.GetValue(1)));
+                StringAssert.Contains(reader.GetString(2), "STRUCT", "BigQuery depende do tipo da coluna mesmo com a lista vazia.");
+                Assert.IsTrue(reader.GetBoolean(3));
+                Assert.AreEqual(0L, Convert.ToInt64(reader.GetValue(4)));
+                StringAssert.Contains(reader.GetString(5), "STRUCT", "BigQuery depende do tipo da coluna mesmo com a lista vazia.");
             }
         }
         finally
